@@ -1,0 +1,7 @@
+node_modules/
+fitness.db
+fitness.db.bak
+fitness.db.lock
+*.db
+*.db-shm
+*.db-wal
