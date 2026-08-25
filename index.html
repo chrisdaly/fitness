@@ -564,13 +564,13 @@ input::placeholder,textarea::placeholder{ color:#b3ab98; }
         <span id="bw-bar-wrap" style="display:none"><span id="bw-bar-fill"></span><span id="bw-marker"></span><span id="bw-marker-lbl"></span><span id="bw-bar-start"></span><span id="bw-bar-end"></span></span>
         <div class="bw-hero-foot">
           <button class="bw-log-btn" onclick="openWeightModal()">+ LOG WEIGHT</button>
+          <div id="bw-velocity" style="font-family:'Archivo',sans-serif;font-weight:800;font-size:11px;letter-spacing:0.12em;margin-left:18px;align-self:center"></div>
         </div>
         <div class="bw-hero-chart" id="bw-spark"></div>
       </div>
       <!-- hidden stat elements kept for JS compatibility -->
       <span id="bw-lost" style="display:none"></span>
       <span id="bw-since" style="display:none"></span>
-      <span id="bw-velocity" style="display:none"></span>
       <span id="bw-pct" style="display:none"></span>
       <span id="bw-pct-lbl" style="display:none"></span>
       <span id="bw-kg-to-go" style="display:none"></span>
@@ -1173,15 +1173,18 @@ function getWeeklyScore() {
 }
 
 function getWeightVelocity() {
-  const bwH = (todayData.bwHistory || []).slice()
+  const bwH = (todayData.bwHistory || []).slice().sort((a, b) => a.date < b.date ? -1 : 1)
   if (bwH.length < 2) return null
-  const today = localIso(new Date())
-  const weekAgo = new Date(); weekAgo.setDate(weekAgo.getDate() - 7)
-  const weekAgoIso = localIso(weekAgo)
-  const recent = bwH.find(b => b.date === today) || bwH[0]
-  const older = bwH.find(b => b.date <= weekAgoIso)
-  if (!recent || !older) return null
-  return recent.weight_kg - older.weight_kg
+  const newest = bwH[bwH.length - 1]
+  // Use last 14 days of data for velocity, not full history
+  const cutoff = new Date(newest.date); cutoff.setDate(cutoff.getDate() - 14)
+  const cutoffIso = localIso(cutoff)
+  const recentEntries = bwH.filter(b => b.date >= cutoffIso)
+  const oldest = recentEntries.length >= 2 ? recentEntries[0] : bwH[bwH.length - 2]
+  const days = (new Date(newest.date) - new Date(oldest.date)) / 86400000
+  if (days < 1) return null
+  const kgPerDay = (newest.weight_kg - oldest.weight_kg) / days
+  return { weekly: kgPerDay * 7, days }
 }
 
 function renderHeatmap() {
@@ -1290,10 +1293,17 @@ function renderDashboard() {
   // Weight velocity
   const vel = getWeightVelocity()
   const velEl = document.getElementById('bw-velocity')
-  if (velEl && vel !== null) {
-    const sign = vel < 0 ? '↓' : vel > 0 ? '↑' : '='
-    const col = vel < 0 ? 'var(--green)' : vel > 0 ? 'var(--red)' : 'var(--muted)'
-    velEl.innerHTML = `<span style="color:${col};font-weight:800">${sign} ${Math.abs(vel).toFixed(1)} KG THIS WEEK</span>`
+  if (velEl) {
+    if (vel !== null) {
+      const w = vel.weekly
+      const sign = w < 0 ? '↓' : w > 0 ? '↑' : '='
+      const onTrack = w <= -0.8
+      const trackCol = onTrack ? 'rgba(30,138,99,0.9)' : 'rgba(244,168,0,0.9)'
+      const trackTxt = onTrack ? '· ON TRACK' : '· BELOW TARGET'
+      velEl.innerHTML = `<span style="color:rgba(239,233,218,0.85)">${sign} ${Math.abs(w).toFixed(1)} KG/WK</span> <span style="color:${trackCol};font-size:9px">${vel.days >= 7 ? trackTxt : ''}</span>`
+    } else {
+      velEl.textContent = ''
+    }
   }
 
   // Today streak + weekly score in header
@@ -1541,7 +1551,7 @@ function getPPLThisWeek() {
   mon.setDate(today.getDate() - (today.getDay() === 0 ? 6 : today.getDay() - 1))
   mon.setHours(0, 0, 0, 0)
   const done = { PUSH: false, PULL: false, LEGS: false }
-  sessions.filter(s => new Date(s.date + 'T12:00:00') >= mon).forEach(s => { if (s.type in done) done[s.type] = true })
+  sessions.filter(s => new Date(s.date + 'T12:00:00') >= mon).forEach(s => { const t = (s.type || '').toUpperCase(); if (t in done) done[t] = true })
   const missing = ['LEGS', 'PUSH', 'PULL'].filter(t => !done[t])
   return { done, next: missing[0] || null }
 }
@@ -1554,7 +1564,7 @@ function get12WeekData() {
     const key = weekKey(d.toISOString().slice(0, 10))
     const ws = sessions.filter(s => weekKey(s.date) === key)
     const counts = { PUSH: 0, PULL: 0, LEGS: 0 }
-    ws.forEach(s => { if (s.type in counts) counts[s.type]++ })
+    ws.forEach(s => { const t = (s.type || '').toUpperCase(); if (t in counts) counts[t]++ })
     const dom = ws.length ? Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0] : null
     return { total: ws.length, color: dom ? COLORS[dom] : null }
   })
@@ -1580,7 +1590,7 @@ function heroChartSVG(data, goalKg) {
   const tSpan = tEnd - t0
   const dx = iso => pl + ((new Date(iso).getTime() - t0) / tSpan) * iw
 
-  const todayIso = '2026-08-18'
+  const todayIso = localIso(new Date())
   const todayX = dx(todayIso)
   const rightX = pl + iw
 
@@ -1726,11 +1736,12 @@ function renderPPLCard() {
   </div>`
 }
 
+const isType = (s, t) => (s.type || '').toUpperCase() === t
 function renderMetricsStrip() {
   const el = document.getElementById('training-metrics'); if (!el) return
-  const push = sessions.filter(s => s.type === 'PUSH').length
-  const pull = sessions.filter(s => s.type === 'PULL').length
-  const legs = sessions.filter(s => s.type === 'LEGS').length
+  const push = sessions.filter(s => isType(s, 'PUSH')).length
+  const pull = sessions.filter(s => isType(s, 'PULL')).length
+  const legs = sessions.filter(s => isType(s, 'LEGS')).length
   const { pct, streak } = getConsistency()
   const tons = (sessions.reduce((a, s) => a + (s.volume_kg || 0), 0) / 1000).toFixed(1)
   el.innerHTML = `<div class="metrics-strip">
@@ -1750,9 +1761,9 @@ function renderTrendSection() {
   const bars = weeks.map(w =>
     `<div class="wk-bar" style="height:${w.total ? Math.max(6, w.total / maxS * 52) : 3}px;background:${w.color || 'var(--border)'}"></div>`
   ).join('')
-  const push = sessions.filter(s => s.type === 'PUSH').length
-  const pull = sessions.filter(s => s.type === 'PULL').length
-  const legs = sessions.filter(s => s.type === 'LEGS').length
+  const push = sessions.filter(s => isType(s, 'PUSH')).length
+  const pull = sessions.filter(s => isType(s, 'PULL')).length
+  const legs = sessions.filter(s => isType(s, 'LEGS')).length
   const tot = push + pull + legs || 1
   const split = [['PUSH', push, '#f4a800'], ['PULL', pull, '#2e44c8'], ['LEGS', legs, '#1e8a63']].map(([l, n, c]) =>
     `<div class="split-row">
@@ -1838,7 +1849,7 @@ function renderWeekStrip() {
     const cls = ['week-cell', done ? 'has-session' : '', isToday ? 'is-today' : ''].filter(Boolean).join(' ')
     const click = s ? `onclick="openSessDetail(${s.id})"` : ''
     let badge = ''
-    if (s) badge = `<span class="week-cell-type" style="background:${s.color || TYPE_COLOR[s.type] || '#f4a800'}">${s.type}</span>`
+    if (s) { const ut = (s.type || '').toUpperCase(); badge = `<span class="week-cell-type" style="background:${s.color || TYPE_COLOR[ut] || '#f4a800'}">${ut}</span>` }
     else if (runDone) badge = `<span class="week-cell-type" style="background:${TYPE_COLOR.RUN}">RUN</span>`
     else if (planned) badge = `<span class="week-cell-planned">${planned}</span>`
     return `<div class="${cls}" ${click}>
@@ -2191,7 +2202,7 @@ function closeSessionModalScrim(e) { if (e.target === document.getElementById('s
 function renderProgramCards() {
   document.getElementById('program-cards').innerHTML = PROGRAMS.map(p => {
     // Look up last session for this program type
-    const lastSess = sessions.find(s => s.type === p.short)
+    const lastSess = sessions.find(s => (s.type || '').toUpperCase() === p.short)
     const meta = lastSess ? `${fmtDate(lastSess.date)} · ${lastSess.total_sets || 0} SETS` : `${p.exercises.length} EXERCISES`
     return `<button class="program-card" onclick="selectProgram('${p.id}')">
       <div class="program-card-bar" style="background:${p.color}"></div>

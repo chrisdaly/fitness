@@ -270,15 +270,26 @@ app.get('/api/runs', (req, res) => {
   res.json(q('SELECT * FROM runs ORDER BY date DESC, id DESC LIMIT 60').all([]))
 })
 
-// PRs per exercise
 app.get('/api/prs', (req, res) => {
   res.json(q(`
-    SELECT e.name, MAX(s.weight_kg) as best_kg
+    SELECT e.name, MAX(s.weight_kg) as best_kg, MAX(s.reps) as best_reps
     FROM sets s JOIN exercises e ON e.id = s.exercise_id
     WHERE s.weight_kg IS NOT NULL AND s.weight_kg > 0
     GROUP BY LOWER(TRIM(e.name))
     ORDER BY best_kg DESC
   `).all([]))
+})
+
+app.patch('/api/sets/:id', (req, res) => {
+  const { weight_kg, reps } = req.body
+  const updates = []
+  const vals = []
+  if (weight_kg !== undefined) { updates.push('weight_kg = ?'); vals.push(weight_kg === null ? null : parseFloat(weight_kg)) }
+  if (reps !== undefined) { updates.push('reps = ?'); vals.push(parseInt(reps)) }
+  if (!updates.length) return res.status(400).json({ error: 'nothing to update' })
+  vals.push(+req.params.id)
+  q(`UPDATE sets SET ${updates.join(', ')} WHERE id = ?`).run(vals)
+  res.json(q('SELECT * FROM sets WHERE id = ?').get([+req.params.id]))
 })
 
 // Goals (simple key/value store)
