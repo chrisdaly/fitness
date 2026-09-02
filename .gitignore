@@ -5,3 +5,5 @@ fitness.db.lock
 *.db
 *.db-shm
 *.db-wal
+.google-credentials.json
+.google-tokens.json

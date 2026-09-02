@@ -118,13 +118,14 @@ function sessionSummary(s) {
 app.get('/api/today', (req, res) => {
   const today = new Date().toISOString().slice(0, 10)
   const row = q('SELECT id FROM sessions WHERE date = ? ORDER BY id DESC LIMIT 1').get([today])
-  const bwHistory = q('SELECT * FROM body_weight ORDER BY date DESC LIMIT 14').all([])
+  const bwAll = q('SELECT * FROM body_weight ORDER BY date DESC LIMIT 600').all([])
+  const bwHistory = bwAll.slice().reverse()
   const stepsRow = q('SELECT steps FROM daily_steps WHERE date = ?').get([today])
   const dietRow = q('SELECT on_plan FROM daily_diet WHERE date = ?').get([today])
   const sleepRow = q('SELECT slept_ok FROM daily_sleep WHERE date = ?').get([today])
   res.json({
     session: row ? getSession(row.id) : null,
-    bodyWeight: bwHistory[0] || null,
+    bodyWeight: bwAll[0] || null,
     bwHistory,
     lastRun: q('SELECT * FROM runs ORDER BY date DESC, id DESC LIMIT 1').get([]) || null,
     todaySteps: stepsRow ? stepsRow.steps : null,
@@ -392,6 +393,130 @@ app.post('/api/notes', (req, res) => {
 app.delete('/api/notes/:id', (req, res) => {
   q('DELETE FROM insight_notes WHERE id = ?').run([req.params.id])
   res.json({ ok: true })
+})
+
+// ── GOOGLE HEALTH / FITBIT SYNC ─────────────────────────────────────────────
+const { google } = require('googleapis')
+const TOKENS_PATH = process.env.FLY_APP_NAME
+  ? '/data/.google-tokens.json'
+  : path.join(__dirname, '.google-tokens.json')
+const CREDS = process.env.FLY_APP_NAME
+  ? { client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uris: ['https://fitlog-chris.fly.dev/auth/google-health/callback'] }
+  : JSON.parse(fs.readFileSync(path.join(__dirname, '.google-credentials.json'))).web
+
+const oauth2Client = new google.auth.OAuth2(
+  CREDS.client_id,
+  CREDS.client_secret,
+  CREDS.redirect_uris[0]
+)
+
+const SCOPES = [
+  'https://www.googleapis.com/auth/fitness.activity.read',
+  'https://www.googleapis.com/auth/fitness.body.read',
+  'https://www.googleapis.com/auth/fitness.sleep.read',
+  'https://www.googleapis.com/auth/fitness.heart_rate.read',
+]
+
+function loadTokens() {
+  try { return JSON.parse(fs.readFileSync(TOKENS_PATH)) } catch { return null }
+}
+function saveTokens(tokens) {
+  fs.writeFileSync(TOKENS_PATH, JSON.stringify(tokens, null, 2))
+}
+
+const savedTokens = loadTokens()
+if (savedTokens) oauth2Client.setCredentials(savedTokens)
+oauth2Client.on('tokens', t => { saveTokens({ ...loadTokens(), ...t }) })
+
+app.get('/auth/google-health', (req, res) => {
+  const url = oauth2Client.generateAuthUrl({ access_type: 'offline', scope: SCOPES, prompt: 'consent' })
+  res.redirect(url)
+})
+
+app.get('/auth/google-health/callback', async (req, res) => {
+  const { code } = req.query
+  const { tokens } = await oauth2Client.getToken(code)
+  oauth2Client.setCredentials(tokens)
+  saveTokens(tokens)
+  res.send('<h2>Fitbit connected!</h2><p>You can close this tab. <a href="/">Back to FITLOG</a></p>')
+})
+
+app.get('/api/fitbit/status', (req, res) => {
+  const tokens = loadTokens()
+  res.json({ connected: !!(tokens?.access_token), last_sync: tokens?.last_sync || null })
+})
+
+app.post('/api/fitbit/sync', async (req, res) => {
+  const tokens = loadTokens()
+  if (!tokens?.access_token) return res.status(401).json({ error: 'Not connected. Visit /auth/google-health first.' })
+  oauth2Client.setCredentials(tokens)
+
+  const days = parseInt(req.query.days) || 7
+  const now = Date.now()
+  const startMs = now - days * 24 * 60 * 60 * 1000
+
+  const fitness = google.fitness({ version: 'v1', auth: oauth2Client })
+
+  async function aggregate(dataTypeName) {
+    const r = await fitness.users.dataset.aggregate({
+      userId: 'me',
+      requestBody: {
+        aggregateBy: [{ dataTypeName }],
+        bucketByTime: { durationMillis: 86400000 },
+        startTimeMillis: startMs,
+        endTimeMillis: now,
+      },
+    })
+    return r.data.bucket || []
+  }
+
+  const results = { synced: [], skipped: [] }
+
+  // Steps
+  const stepBuckets = await aggregate('com.google.step_count.delta')
+  for (const b of stepBuckets) {
+    const date = new Date(parseInt(b.startTimeMillis)).toISOString().slice(0, 10)
+    const steps = b.dataset?.[0]?.point?.reduce((s, p) => s + (p.value?.[0]?.intVal || 0), 0) || 0
+    if (steps > 0) {
+      q('INSERT INTO daily_steps (date, steps) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET steps = excluded.steps').run([date, steps])
+      results.synced.push(`steps ${date}: ${steps}`)
+    }
+  }
+
+  // Weight
+  const weightBuckets = await aggregate('com.google.weight')
+  for (const b of weightBuckets) {
+    const date = new Date(parseInt(b.startTimeMillis)).toISOString().slice(0, 10)
+    const pts = b.dataset?.[0]?.point || []
+    if (pts.length) {
+      const kg = pts[pts.length - 1].value?.[0]?.fpVal
+      if (kg) {
+        q('INSERT INTO body_weight (date, weight_kg) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg').run([date, Math.round(kg * 10) / 10])
+        results.synced.push(`weight ${date}: ${kg}kg`)
+      }
+    }
+  }
+
+  // Sleep (total hours per day)
+  const sleepBuckets = await aggregate('com.google.sleep.segment')
+  for (const b of sleepBuckets) {
+    const date = new Date(parseInt(b.startTimeMillis)).toISOString().slice(0, 10)
+    const pts = b.dataset?.[0]?.point || []
+    let sleepMs = 0
+    for (const p of pts) {
+      const type = p.value?.[1]?.intVal
+      if (type >= 1) sleepMs += parseInt(p.endTimeNanos - p.startTimeNanos) / 1e6
+    }
+    const hours = Math.round((sleepMs / 3600000) * 10) / 10
+    if (hours > 0) {
+      q('INSERT INTO daily_sleep (date, slept_ok) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET slept_ok = excluded.slept_ok').run([date, hours])
+      results.synced.push(`sleep ${date}: ${hours}h`)
+    }
+  }
+
+  const newTokens = { ...loadTokens(), last_sync: new Date().toISOString() }
+  saveTokens(newTokens)
+  res.json(results)
 })
 
 // ── DEV ONLY ────────────────────────────────────────────────────────────────
