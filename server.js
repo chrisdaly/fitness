@@ -434,11 +434,17 @@ app.get('/auth/google-health', (req, res) => {
 })
 
 app.get('/auth/google-health/callback', async (req, res) => {
-  const { code } = req.query
-  const { tokens } = await oauth2Client.getToken(code)
-  oauth2Client.setCredentials(tokens)
-  saveTokens(tokens)
-  res.send('<h2>Fitbit connected!</h2><p>You can close this tab. <a href="/">Back to FITLOG</a></p>')
+  const { code, error } = req.query
+  if (error) return res.send(`<h2>Auth error: ${error}</h2><p><a href="/auth/google-health">Try again</a></p>`)
+  try {
+    const { tokens } = await oauth2Client.getToken(code)
+    oauth2Client.setCredentials(tokens)
+    saveTokens(tokens)
+    res.send('<h2>Fitbit connected!</h2><p>You can close this tab. <a href="/">Back to FITLOG</a></p>')
+  } catch (e) {
+    console.error('OAuth callback error:', e.message)
+    res.send(`<h2>Auth failed</h2><p>${e.message}</p><p><a href="/auth/google-health">Try again</a></p>`)
+  }
 })
 
 app.get('/api/fitbit/status', (req, res) => {
