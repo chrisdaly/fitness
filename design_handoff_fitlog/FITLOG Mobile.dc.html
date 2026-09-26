@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;600;700;800;900&family=Archivo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  *{ box-sizing:border-box; }
+  body{ margin:0; background:#2a2620; }
+  @keyframes barGrow{ from{ transform:scaleX(0); } to{ transform:scaleX(1); } }
+  @keyframes popUp{ from{ transform:translateY(14px); } to{ transform:translateY(0); } }
+  @keyframes sheetIn{ from{ transform:translateY(100%); } to{ transform:translateY(0); } }
+  @keyframes scrimIn{ from{ opacity:0; } to{ opacity:1; } }
+  button{ font-family:inherit; cursor:pointer; border:none; background:none; }
+  input{ font-family:inherit; }
+  input::placeholder{ color:#b3ab98; }
+  .scroll::-webkit-scrollbar{ display:none; }
+</style>
+</helmet>
+
+<div style="min-height:100vh; background:radial-gradient(circle at 50% 0%, #36312a, #221f1a); display:flex; align-items:center; justify-content:center; padding:30px; font-family:'Archivo',sans-serif;">
+  <div style="position:relative; width:393px; height:852px; background:#efe9da; border-radius:46px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,0.5); border:1px solid #000;">
+
+    <!-- status bar -->
+    <div style="position:absolute; top:0; left:0; right:0; height:50px; display:flex; align-items:center; justify-content:space-between; padding:0 30px; z-index:5;">
+      <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:15px; color:#1a1610;">9:41</span>
+      <div style="display:flex; align-items:center; gap:5px;">
+        <div style="width:17px; height:11px; border:1.5px solid #1a1610; border-radius:3px;"></div>
+        <div style="width:16px; height:11px; background:#1a1610; border-radius:2px;"></div>
+      </div>
+    </div>
+
+    <!-- scrollable content -->
+    <div class="scroll" style="position:absolute; top:50px; left:0; right:0; bottom:0; overflow-y:auto; padding:8px 18px 110px;">
+
+      <!-- app header -->
+      <div style="display:flex; align-items:center; justify-content:space-between; padding:6px 0 14px;">
+        <div>
+          <div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:26px; line-height:0.8;">FITLOG</div>
+          <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:8px; letter-spacing:0.3em; color:#8a8270; margin-top:2px;">ATHLETIC LOG</div>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:7px; background:#1a1610; color:#f7f1e3; border-radius:30px; padding:7px 12px; font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; letter-spacing:0.06em;"><span style="width:6px; height:6px; border-radius:50%; background:#f4a800;"></span>11 DAYS</div>
+          <div style="width:38px; height:38px; border-radius:50%; background:#f4a800; border:2.5px solid #1a1610; display:flex; flex-direction:column; align-items:center; justify-content:center; line-height:1;"><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:6px; letter-spacing:0.1em;">WK</span><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:15px;">26</span></div>
+        </div>
+      </div>
+
+      <!-- ===== DASHBOARD ===== -->
+      <sc-if value="{{ showDash }}" hint-placeholder-val="{{ true }}">
+      <div style="animation:popUp 0.4s ease-out;">
+        <div style="position:relative; background:#2e44c8; color:#f7f1e3; padding:20px 20px 18px; border-radius:18px; overflow:hidden;">
+          <div style="position:absolute; right:-20px; top:-40px; font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:230px; line-height:0.7; color:rgba(255,255,255,0.07);">95</div>
+          <div style="position:relative;">
+            <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9.5px; letter-spacing:0.18em; color:rgba(247,241,227,0.7);">BODYWEIGHT — THE CUT</div>
+            <div style="display:flex; align-items:flex-end; justify-content:space-between; margin-top:8px;">
+              <div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:92px; line-height:0.7;">101.2</div>
+              <div style="width:72px; height:72px; border-radius:50%; background:#f4a800; color:#1a1610; display:flex; flex-direction:column; align-items:center; justify-content:center; margin-bottom:6px;"><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:28px; line-height:0.8;">52%</span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:7px; letter-spacing:0.1em; margin-top:2px;">TO 95.0</span></div>
+            </div>
+            <div style="position:relative; height:30px; margin-top:14px;">
+              <div style="position:absolute; left:0; top:0; width:100%; height:12px; background:rgba(247,241,227,0.2); border-radius:6px;"></div>
+              <div style="position:absolute; left:0; top:0; width:52.3%; height:12px; border-radius:6px; background:repeating-linear-gradient(135deg,#f4a800 0 9px,#e09600 9px 18px); transform-origin:left; animation:barGrow 1.1s ease-out;"></div>
+              <div style="position:absolute; left:52.3%; top:6px; transform:translate(-50%,-50%); width:16px; height:16px; border-radius:50%; background:#f7f1e3; border:3px solid #2e44c8; box-shadow:0 0 0 2px #f7f1e3;"></div>
+              <div style="position:absolute; left:0; top:16px; font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; color:rgba(247,241,227,0.7);">108 START</div>
+              <div style="position:absolute; right:0; top:16px; font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; color:#f4a800;">95.0 ⚑</div>
+            </div>
+            <div style="margin-top:14px; font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:18px; color:#f4a800;">6.2 KG TO GO <span style="font-family:'Archivo',sans-serif; font-weight:600; font-size:10px; color:rgba(247,241,227,0.7);">· on pace for Sep 12</span></div>
+          </div>
+        </div>
+
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+          <div style="background:#f4a800; color:#1a1610; padding:16px 16px 14px; border-radius:14px;"><div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:10px; letter-spacing:0.12em;">STEPS</div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:42px; line-height:0.8; margin-top:6px;">8,420</div><div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; margin-top:6px;">84% OF 10K</div></div>
+          <div style="background:#e5431e; color:#f7f1e3; padding:16px 16px 14px; border-radius:14px;"><div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:10px; letter-spacing:0.12em;">DEFICIT</div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:42px; line-height:0.8; margin-top:6px;">−770</div><div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; margin-top:6px;">KCAL TODAY</div></div>
+          <div style="background:#1a1610; color:#f7f1e3; padding:16px 16px 14px; border-radius:14px;"><div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:10px; letter-spacing:0.12em; color:#f4a800;">5K BEST</div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:42px; line-height:0.8; margin-top:6px;">31:40</div><div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; margin-top:6px;">GOAL SUB-30</div></div>
+          <div style="background:#1e8a63; color:#f7f1e3; padding:16px 16px 14px; border-radius:14px;"><div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:10px; letter-spacing:0.12em;">RUNNING</div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:42px; line-height:0.8; margin-top:6px;">41.2<span style="font-size:18px;">km</span></div><div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; margin-top:6px;">4 RUNS / WK</div></div>
+        </div>
+
+        <div style="margin-top:10px; border:2.5px solid #1a1610; border-radius:14px; padding:16px 18px;">
+          <div style="display:flex; align-items:baseline; justify-content:space-between;"><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:10px; letter-spacing:0.12em; color:#8a8270;">STRENGTH · WK</span><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:28px;">14,250<span style="font-size:13px; color:#8a8270;"> KG</span></span></div>
+          <div style="display:flex; gap:7px; margin-top:12px;">
+            <div style="flex:1; text-align:center; border:2px solid #1a1610; border-radius:10px; padding:8px 4px;"><div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; color:#8a8270;">BENCH</div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:22px; color:#e5431e; line-height:0.9;">82.5</div></div>
+            <div style="flex:1; text-align:center; border:2px solid #1a1610; border-radius:10px; padding:8px 4px;"><div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; color:#8a8270;">SQUAT</div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:22px; color:#e5431e; line-height:0.9;">120</div></div>
+            <div style="flex:1; text-align:center; border:2px solid #1a1610; border-radius:10px; padding:8px 4px;"><div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; color:#8a8270;">DEAD</div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:22px; color:#e5431e; line-height:0.9;">150</div></div>
+          </div>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ===== TRAINING ===== -->
+      <sc-if value="{{ showTraining }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:popUp 0.4s ease-out;">
+        <div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:38px; line-height:0.78;">TRAINING LOG</div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; letter-spacing:0.08em; color:#8a8270; margin-top:4px;">WEEK 26 · 14,250 KG MOVED</div>
+        <div style="display:flex; flex-direction:column; gap:10px; margin-top:14px;">
+          <sc-for list="{{ sessions }}" as="s" hint-placeholder-count="3">
+            <div style="display:flex; border:2.5px solid #1a1610; border-radius:14px; background:#f7f1e3; overflow:hidden;">
+              <div style="width:8px; background:{{ s.color }};"></div>
+              <div style="flex:1; padding:14px 16px;">
+                <div style="display:flex; align-items:baseline; justify-content:space-between;">
+                  <div style="display:flex; align-items:baseline; gap:10px;"><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:24px;">{{ s.name }}</span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; color:#8a8270;">{{ s.date }}</span></div>
+                  <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; color:#8a8270;">{{ s.meta }}</span>
+                </div>
+                <div style="display:flex; flex-direction:column; gap:3px; margin-top:10px; font-family:'Archivo',sans-serif; font-size:12px; font-weight:600;">
+                  <sc-for list="{{ s.exercises }}" as="ex" hint-placeholder-count="3">
+                    <div style="display:flex; justify-content:space-between;"><button onClick="{{ ex.onOpen }}" style="color:#1a1610; font-family:inherit; font-size:12px; font-weight:600; text-align:left; padding:0; border-bottom:1.5px dotted #b3aa95;">{{ ex.name }}</button><span style="color:#6b6555;">{{ ex.detail }}<sc-if value="{{ ex.pr }}" hint-placeholder-val="{{ false }}"> <span style="background:#e5431e; color:#f7f1e3; font-weight:800; font-size:8px; padding:1px 5px; border-radius:3px;">PR</span></sc-if></span></div>
+                  </sc-for>
+                </div>
+                <sc-if value="{{ s.hasNote }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; gap:8px; align-items:flex-start; margin-top:11px; padding-top:10px; border-top:2px solid #ece4d2;">
+                    <span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:8px; letter-spacing:0.1em; color:#a39a86; flex-shrink:0; padding-top:2px;">NOTE</span>
+                    <span style="font-family:'Archivo',sans-serif; font-weight:500; font-size:12px; line-height:1.45; color:#5c554a; font-style:italic;">{{ s.note }}</span>
+                  </div>
+                </sc-if>
+              </div>
+            </div>
+          </sc-for>
+        </div>
+      </div>
+      </sc-if>
+
+      <!-- ===== GOALS ===== -->
+      <sc-if value="{{ showGoals }}" hint-placeholder-val="{{ false }}">
+      <div style="animation:popUp 0.4s ease-out;">
+        <div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:38px; line-height:0.78;">GOALS</div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; letter-spacing:0.08em; color:#8a8270; margin-top:4px;">5 ACTIVE TARGETS</div>
+        <div style="background:#2e44c8; color:#f7f1e3; padding:18px 20px; border-radius:16px; margin-top:14px;">
+          <div style="display:flex; align-items:flex-start; justify-content:space-between;"><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; letter-spacing:0.16em; color:rgba(247,241,227,0.7);">BODYWEIGHT · THE CUT</span><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:30px; color:#f4a800; line-height:0.8;">52%</span></div>
+          <div style="display:flex; align-items:baseline; gap:10px; margin-top:6px;"><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:56px; line-height:0.72;">101.2</span><span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:12px; color:rgba(247,241,227,0.75);">→ 95.0 kg</span></div>
+          <div style="margin-top:12px; height:10px; background:rgba(247,241,227,0.2); border-radius:5px; overflow:hidden;"><div style="height:100%; width:52%; background:#f4a800; transform-origin:left; animation:barGrow 1.1s ease-out;"></div></div>
+          <div style="font-family:'Archivo',sans-serif; font-weight:600; font-size:10px; color:rgba(247,241,227,0.75); margin-top:8px;">6.2 kg to go · Sep 12 at −0.7/wk</div>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:10px;">
+          <div style="background:#e5431e; color:#f7f1e3; padding:14px 16px; border-radius:14px;"><div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.1em;">5K TIME</span><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:18px;">72%</span></div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:38px; line-height:0.78; margin-top:6px;">31:40</div><div style="margin-top:10px; height:7px; background:rgba(247,241,227,0.25); border-radius:4px; overflow:hidden;"><div style="height:100%; width:72%; background:#f7f1e3;"></div></div></div>
+          <div style="background:#f4a800; color:#1a1610; padding:14px 16px; border-radius:14px;"><div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.1em;">STEPS</span><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:18px;">84%</span></div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:38px; line-height:0.78; margin-top:6px;">8,420</div><div style="margin-top:10px; height:7px; background:rgba(26,22,16,0.18); border-radius:4px; overflow:hidden;"><div style="height:100%; width:84%; background:#1a1610;"></div></div></div>
+          <div style="background:#1a1610; color:#f7f1e3; padding:14px 16px; border-radius:14px;"><div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.1em; color:#f4a800;">BENCH</span><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:18px;">63%</span></div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:38px; line-height:0.78; margin-top:6px;">82.5</div><div style="margin-top:10px; height:7px; background:rgba(247,241,227,0.18); border-radius:4px; overflow:hidden;"><div style="height:100%; width:63%; background:#f4a800;"></div></div></div>
+          <div style="background:#1e8a63; color:#f7f1e3; padding:14px 16px; border-radius:14px;"><div style="display:flex; justify-content:space-between; align-items:center;"><span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.1em;">DEFICIT</span><span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:18px;">93%</span></div><div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:38px; line-height:0.78; margin-top:6px;">−650</div><div style="margin-top:10px; height:7px; background:rgba(247,241,227,0.25); border-radius:4px; overflow:hidden;"><div style="height:100%; width:93%; background:#f7f1e3;"></div></div></div>
+        </div>
+      </div>
+      </sc-if>
+
+    </div>
+
+    <!-- FAB -->
+    <button onClick="{{ openModal }}" style="position:absolute; right:20px; bottom:84px; width:58px; height:58px; border-radius:50%; background:#2e44c8; color:#f7f1e3; font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:34px; z-index:8; box-shadow:0 8px 20px rgba(46,68,200,0.5); border:2.5px solid #1a1610; display:flex; align-items:center; justify-content:center; padding-bottom:4px;">+</button>
+
+    <!-- bottom nav -->
+    <div style="position:absolute; left:0; right:0; bottom:0; height:78px; background:#1a1610; display:flex; align-items:flex-start; justify-content:space-around; padding:12px 14px 0; z-index:7;">
+      <sc-for list="{{ navItems }}" as="n" hint-placeholder-count="3">
+        <button onClick="{{ n.go }}" style="{{ n.style }}">{{ n.label }}<sc-if value="{{ n.active }}" hint-placeholder-val="{{ false }}"><span style="display:block; width:20px; height:3px; background:#e5431e; border-radius:2px; margin:6px auto 0;"></span></sc-if></button>
+      </sc-for>
+    </div>
+
+    <!-- LOG SHEET -->
+    <sc-if value="{{ modalOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeModal }}" style="position:absolute; inset:0; z-index:20; background:rgba(26,22,16,0.55); animation:scrimIn 0.2s ease-out;"></div>
+    <div style="position:absolute; left:0; right:0; bottom:0; z-index:21; max-height:88%; overflow-y:auto; background:#efe9da; border-top:4px solid #1a1610; border-radius:24px 24px 0 0; padding:22px 20px 26px; animation:sheetIn 0.3s cubic-bezier(.2,.8,.2,1);">
+      <div style="width:44px; height:5px; background:#cfc7b4; border-radius:3px; margin:0 auto 16px;"></div>
+      <div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:30px; line-height:0.8;">{{ modalTitle }}</div>
+      <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; letter-spacing:0.12em; color:#8a8270; margin-top:3px;">{{ modalSubtitle }}</div>
+
+      <!-- PHASE: PICK -->
+      <sc-if value="{{ phasePick }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex; flex-direction:column; gap:10px; margin-top:18px;">
+        <sc-for list="{{ programCards }}" as="p" hint-placeholder-count="3">
+          <button onClick="{{ p.onClick }}" style="display:flex; align-items:stretch; text-align:left; border:2.5px solid #1a1610; border-radius:12px; background:#fff; overflow:hidden; min-height:60px;">
+            <div style="{{ p.barStyle }}"></div>
+            <div style="flex:1; padding:14px 16px; display:flex; align-items:center; justify-content:space-between;">
+              <span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:26px; line-height:0.8;">{{ p.name }}</span>
+              <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; letter-spacing:0.06em; color:#8a8270;">{{ p.meta }}</span>
+            </div>
+          </button>
+        </sc-for>
+      </div>
+      </sc-if>
+
+      <!-- PHASE: LOG -->
+      <sc-if value="{{ phaseLog }}" hint-placeholder-val="{{ false }}">
+      <div style="display:flex; flex-direction:column; gap:12px; margin-top:16px;">
+        <sc-for list="{{ logExercises }}" as="ex" hint-placeholder-count="3">
+          <div style="border:2px solid #1a1610; border-radius:12px; background:#fff; overflow:hidden;">
+            <div style="display:flex; flex-direction:column; gap:6px; padding:12px 14px; border-bottom:2px solid #ece4d2;">
+              <span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:22px; line-height:0.8;">{{ ex.name }}</span>
+              <div style="display:flex; gap:6px;">
+                <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; letter-spacing:0.03em; color:#8a8270; background:#efe9da; border-radius:20px; padding:4px 9px;">LAST {{ ex.last }}</span>
+                <span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.03em; color:#f7f1e3; background:#e5431e; border-radius:20px; padding:4px 9px;">MAX {{ ex.max }}</span>
+              </div>
+            </div>
+            <div style="padding:10px 14px; display:flex; flex-direction:column; gap:7px;">
+              <sc-for list="{{ ex.sets }}" as="st" hint-placeholder-count="3">
+                <div style="display:flex; align-items:center; gap:8px;">
+                  <span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.08em; color:#a39a86; width:38px;">{{ st.label }}</span>
+                  <input value="{{ st.weight }}" onChange="{{ st.onWeight }}" type="number" step="0.5" style="width:62px; padding:7px 8px; background:#fff; border:2px solid #1a1610; border-radius:7px; color:#1a1610; font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:16px; outline:none; text-align:center;" />
+                  <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:11px; color:#8a8270;">kg ×</span>
+                  <input value="{{ st.reps }}" onChange="{{ st.onReps }}" type="number" style="width:52px; padding:7px 8px; background:#fff; border:2px solid #1a1610; border-radius:7px; color:#1a1610; font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:16px; outline:none; text-align:center;" />
+                  <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:11px; color:#8a8270;">reps</span>
+                </div>
+              </sc-for>
+              <input value="{{ ex.note }}" onChange="{{ ex.onNote }}" placeholder="+ Note — how did it feel?" style="width:100%; margin-top:2px; padding:8px 11px; background:#faf7f0; border:2px dashed #cabfa6; border-radius:7px; color:#1a1610; font-weight:500; font-size:12px; outline:none;" />
+            </div>
+          </div>
+        </sc-for>
+        <div style="border:2px solid #1a1610; border-radius:12px; background:#1a1610; padding:12px 14px;">
+          <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.12em; color:#f4a800;">SESSION NOTE</div>
+          <input value="{{ sessionNote }}" onChange="{{ onSessionNote }}" placeholder="How did the whole session feel?" style="width:100%; margin-top:7px; padding:7px 0; background:transparent; border:none; border-bottom:2px solid #4a443a; color:#f7f1e3; font-weight:500; font-size:13px; outline:none;" />
+        </div>
+      </div>
+      <div style="display:flex; gap:9px; margin-top:18px;">
+        <button onClick="{{ backToPick }}" style="flex:1; padding:14px; border:2px solid #1a1610; border-radius:10px; background:transparent; color:#1a1610; font-family:'Archivo',sans-serif; font-weight:800; font-size:13px; letter-spacing:0.06em;">← BACK</button>
+        <button onClick="{{ saveSession }}" style="flex:2; padding:14px; border-radius:10px; background:#1a1610; color:#f7f1e3; font-family:'Archivo',sans-serif; font-weight:800; font-size:13px; letter-spacing:0.06em;">FINISH ↑</button>
+      </div>
+      </sc-if>
+    </div>
+    </sc-if>
+
+    <!-- EXERCISE NOTES DRAWER -->
+    <sc-if value="{{ drawerOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeDrawer }}" style="position:absolute; inset:0; z-index:30; background:rgba(26,22,16,0.55); animation:scrimIn 0.2s ease-out;"></div>
+    <div style="position:absolute; left:0; right:0; bottom:0; z-index:31; max-height:90%; overflow-y:auto; background:#efe9da; border-top:4px solid #1a1610; border-radius:24px 24px 0 0; animation:sheetIn 0.3s cubic-bezier(.2,.8,.2,1);">
+      <div style="background:#1a1610; color:#f7f1e3; padding:20px 20px; border-radius:20px 20px 0 0;">
+        <div style="width:44px; height:5px; background:#4a443a; border-radius:3px; margin:0 auto 14px;"></div>
+        <div style="display:flex; align-items:flex-start; justify-content:space-between;">
+          <div>
+            <div style="font-family:'Archivo',sans-serif; font-weight:700; font-size:9px; letter-spacing:0.16em; color:#a39a86;">EXERCISE LOG</div>
+            <div style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:34px; line-height:0.82; margin-top:3px;">{{ drawerName }}</div>
+          </div>
+          <button onClick="{{ closeDrawer }}" style="width:34px; height:34px; border:2px solid #5a544a; border-radius:50%; color:#f7f1e3; font-family:'Archivo',sans-serif; font-weight:800; font-size:14px; flex-shrink:0;">✕</button>
+        </div>
+        <div style="display:inline-flex; align-items:baseline; gap:7px; margin-top:12px; background:#e5431e; border-radius:30px; padding:6px 14px;">
+          <span style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.1em;">MAX</span>
+          <span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:20px; line-height:0.8;">{{ drawerMax }}</span>
+        </div>
+      </div>
+      <div style="padding:18px 20px 26px;">
+        <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:10px; letter-spacing:0.12em; color:#8a8270;">HISTORY</div>
+        <div style="display:flex; flex-direction:column; gap:7px; margin-top:10px;">
+          <sc-for list="{{ drawerHistory }}" as="h" hint-placeholder-count="2">
+            <div style="display:flex; align-items:center; justify-content:space-between; border:2px solid #1a1610; border-radius:10px; background:#fff; padding:10px 13px;">
+              <span style="font-family:'Archivo',sans-serif; font-weight:700; font-size:10px; letter-spacing:0.05em; color:#8a8270;">{{ h.date }}</span>
+              <span style="font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:18px; line-height:0.8;">{{ h.detail }}<sc-if value="{{ h.pr }}" hint-placeholder-val="{{ false }}"> <span style="background:#e5431e; color:#f7f1e3; font-family:'Archivo',sans-serif; font-weight:800; font-size:8px; padding:2px 5px; border-radius:3px; letter-spacing:0.06em; vertical-align:middle;">PR</span></sc-if></span>
+            </div>
+          </sc-for>
+        </div>
+        <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:10px; letter-spacing:0.12em; color:#8a8270; margin-top:20px;">NOTES</div>
+        <div style="display:flex; flex-direction:column; gap:9px; margin-top:10px;">
+          <sc-if value="{{ drawerHasNotes }}" hint-placeholder-val="{{ true }}">
+            <sc-for list="{{ drawerNotes }}" as="n" hint-placeholder-count="2">
+              <div style="background:#fff; border:2px solid #ece4d2; border-left:4px solid #f4a800; border-radius:8px; padding:12px 14px;">
+                <div style="font-family:'Archivo',sans-serif; font-weight:800; font-size:9px; letter-spacing:0.1em; color:#a39a86;">{{ n.date }}</div>
+                <div style="font-family:'Archivo',sans-serif; font-weight:500; font-size:13px; line-height:1.5; color:#332f27; margin-top:5px;">{{ n.text }}</div>
+              </div>
+            </sc-for>
+          </sc-if>
+          <sc-if value="{{ noDrawerNotes }}" hint-placeholder-val="{{ false }}">
+            <div style="font-family:'Archivo',sans-serif; font-weight:500; font-size:13px; color:#a39a86; font-style:italic;">No notes yet — add one while logging.</div>
+          </sc-if>
+        </div>
+      </div>
+    </div>
+    </sc-if>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:453,&quot;height&quot;:912}}">
+class Component extends DCLogic {
+  state = {
+    active: 'dashboard',
+    modal: false,
+    phase: 'pick',
+    programName: '',
+    programShort: '',
+    programColor: '#f4a800',
+    draftLog: [],
+    sessionNote: '',
+    drawer: null,
+    exerciseNotes: {
+      'Bench Press': [
+        { date: 'MON · 23 JUN', text: 'Paused the last rep, felt strong. Ready to try 85 next session.' },
+        { date: 'WED · 18 JUN', text: 'Left shoulder a little tight on warmup, fine once loaded.' },
+      ],
+      'Back Squat': [
+        { date: 'SUN · 22 JUN', text: 'Depth was good. Belt on for the top set, brace felt solid.' },
+      ],
+      'Deadlift': [
+        { date: 'FRI · 20 JUN', text: 'Grip gave out on set 3 — try hook grip or straps next time.' },
+      ],
+    },
+    sessions: [
+      { name: 'PUSH', date: 'MON · 23 JUN', color: '#f4a800', meta: '58 MIN · 4,820 KG', note: 'Great energy today. Pre-workout kicked in by the second lift.', exercises: [
+        { name: 'Bench Press', detail: '82.5 ×5,5,4', pr: true },
+        { name: 'Overhead Press', detail: '50 ×6,6,5', pr: false },
+        { name: 'Incline DB', detail: '30 ×10,10,9', pr: false },
+      ] },
+      { name: 'LEGS', date: 'SUN · 22 JUN', color: '#1e8a63', meta: '64 MIN · 6,200 KG', exercises: [
+        { name: 'Back Squat', detail: '120 ×5,5,3', pr: true },
+        { name: 'Romanian DL', detail: '100 ×8,8', pr: false },
+        { name: 'Leg Press', detail: '180 ×10,10', pr: false },
+      ] },
+      { name: 'PULL', date: 'FRI · 20 JUN', color: '#2e44c8', meta: '55 MIN · 3,230 KG', exercises: [
+        { name: 'Deadlift', detail: '150 ×3,3,2', pr: false },
+        { name: 'Barbell Row', detail: '80 ×8,8,8', pr: false },
+        { name: 'Lat Pulldown', detail: '70 ×10,10', pr: false },
+      ] },
+    ],
+  };
+
+  get programs() {
+    return [
+      { id: 'push', short: 'PUSH', name: 'PUSH DAY A', color: '#f4a800', exercises: [
+        { name: 'Bench Press', last: '82.5 ×5,5,4', max: 82.5, prescribe: [{ weight: '82.5', reps: '5' }, { weight: '82.5', reps: '5' }, { weight: '82.5', reps: '4' }] },
+        { name: 'Overhead Press', last: '50 ×6,6,5', max: 52.5, prescribe: [{ weight: '50', reps: '6' }, { weight: '50', reps: '6' }, { weight: '50', reps: '5' }] },
+        { name: 'Incline DB Press', last: '30 ×10,10,9', max: 32, prescribe: [{ weight: '30', reps: '10' }, { weight: '30', reps: '10' }, { weight: '30', reps: '9' }] },
+        { name: 'Triceps Pushdown', last: '25 ×12,12,12', max: 27.5, prescribe: [{ weight: '25', reps: '12' }, { weight: '25', reps: '12' }, { weight: '25', reps: '12' }] },
+      ] },
+      { id: 'pull', short: 'PULL', name: 'PULL DAY A', color: '#2e44c8', exercises: [
+        { name: 'Deadlift', last: '150 ×3,3,2', max: 150, prescribe: [{ weight: '150', reps: '3' }, { weight: '150', reps: '3' }, { weight: '150', reps: '2' }] },
+        { name: 'Barbell Row', last: '80 ×8,8,8', max: 82.5, prescribe: [{ weight: '80', reps: '8' }, { weight: '80', reps: '8' }, { weight: '80', reps: '8' }] },
+        { name: 'Lat Pulldown', last: '70 ×10,10', max: 72.5, prescribe: [{ weight: '70', reps: '10' }, { weight: '70', reps: '10' }] },
+        { name: 'Barbell Curl', last: '18 ×12,12', max: 20, prescribe: [{ weight: '18', reps: '12' }, { weight: '18', reps: '12' }] },
+      ] },
+      { id: 'legs', short: 'LEGS', name: 'LEG DAY A', color: '#1e8a63', exercises: [
+        { name: 'Back Squat', last: '120 ×5,5,3', max: 120, prescribe: [{ weight: '120', reps: '5' }, { weight: '120', reps: '5' }, { weight: '120', reps: '3' }] },
+        { name: 'Romanian DL', last: '100 ×8,8', max: 100, prescribe: [{ weight: '100', reps: '8' }, { weight: '100', reps: '8' }] },
+        { name: 'Leg Press', last: '180 ×10,10', max: 180, prescribe: [{ weight: '180', reps: '10' }, { weight: '180', reps: '10' }] },
+        { name: 'Calf Raise', last: '80 ×15,15', max: 85, prescribe: [{ weight: '80', reps: '15' }, { weight: '80', reps: '15' }] },
+      ] },
+    ];
+  }
+
+  startProgram(p) {
+    const draftLog = p.exercises.map((ex) => ({ name: ex.name, last: ex.last, max: ex.max, note: '', sets: ex.prescribe.map((st) => ({ weight: st.weight, reps: st.reps })) }));
+    this.setState({ phase: 'log', programName: p.name, programShort: p.short, programColor: p.color, draftLog, sessionNote: '' });
+  }
+
+  topWeight(name) {
+    let top = 0;
+    this.state.sessions.forEach((s) => s.exercises.forEach((ex) => {
+      if (ex.name === name) { const m = (ex.detail.match(/[\d.]+/g) || []).map(Number); if (m.length) top = Math.max(top, m[0]); }
+    }));
+    return top;
+  }
+
+  renderVals() {
+    const a = this.state.active;
+    const go = (k) => () => this.setState({ active: k });
+    const nav = (act) => "flex:1; font-family:'Archivo',sans-serif; font-weight:800; font-size:11px; letter-spacing:0.06em; text-transform:uppercase; color:" + (act ? "#f7f1e3" : "#7c7468") + ";";
+    const navItem = (label, key) => ({ label, go: go(key), active: a === key, style: nav(a === key) });
+
+    const programCards = this.programs.map((p) => ({
+      name: p.name,
+      meta: p.exercises.length + ' EX →',
+      barStyle: 'width:8px; align-self:stretch; background:' + p.color + ';',
+      onClick: () => this.startProgram(p),
+    }));
+
+    const logExercises = this.state.draftLog.map((ex, i) => ({
+      name: ex.name,
+      last: ex.last,
+      max: ex.max + ' kg',
+      note: ex.note,
+      onNote: (e) => this.setState((s) => { const dl = s.draftLog.map((x) => ({ ...x })); dl[i] = { ...dl[i], note: e.target.value }; return { draftLog: dl }; }),
+      sets: ex.sets.map((st, j) => ({
+        label: 'SET ' + (j + 1),
+        weight: st.weight,
+        reps: st.reps,
+        onWeight: (e) => this.setState((s) => { const dl = s.draftLog.map((x) => ({ ...x, sets: x.sets.slice() })); dl[i].sets[j] = { ...dl[i].sets[j], weight: e.target.value }; return { draftLog: dl }; }),
+        onReps: (e) => this.setState((s) => { const dl = s.draftLog.map((x) => ({ ...x, sets: x.sets.slice() })); dl[i].sets[j] = { ...dl[i].sets[j], reps: e.target.value }; return { draftLog: dl }; }),
+      })),
+    }));
+
+    return {
+      navItems: [navItem('Dashboard', 'dashboard'), navItem('Training', 'training'), navItem('Goals', 'goals')],
+      showDash: a === 'dashboard',
+      showTraining: a === 'training',
+      showGoals: a === 'goals',
+      sessions: this.state.sessions.map((s) => ({ ...s, hasNote: !!(s.note && s.note.trim()), exercises: s.exercises.map((ex) => ({ ...ex, onOpen: () => this.setState({ drawer: ex.name }) })) })),
+      modalOpen: this.state.modal,
+      phasePick: this.state.phase === 'pick',
+      phaseLog: this.state.phase === 'log',
+      modalTitle: this.state.phase === 'log' ? this.state.programName : 'LOG SESSION',
+      modalSubtitle: this.state.phase === 'log' ? 'ENTER YOUR SETS · TODAY' : 'PICK A PROGRAM',
+      programCards,
+      logExercises,
+      sessionNote: this.state.sessionNote,
+      onSessionNote: (e) => this.setState({ sessionNote: e.target.value }),
+      drawerOpen: !!this.state.drawer,
+      drawerName: this.state.drawer || '',
+      drawerMax: (this.topWeight(this.state.drawer) || 0) + ' kg',
+      drawerHistory: this.state.drawer ? this.state.sessions.flatMap((s) => s.exercises.filter((ex) => ex.name === this.state.drawer).map((ex) => ({ date: s.date, detail: ex.detail, pr: ex.pr }))) : [],
+      drawerNotes: (this.state.exerciseNotes[this.state.drawer] || []),
+      drawerHasNotes: (this.state.exerciseNotes[this.state.drawer] || []).length > 0,
+      noDrawerNotes: !!this.state.drawer && (this.state.exerciseNotes[this.state.drawer] || []).length === 0,
+      closeDrawer: () => this.setState({ drawer: null }),
+      openModal: () => this.setState({ modal: true, active: 'training', phase: 'pick', draftLog: [] }),
+      closeModal: () => this.setState({ modal: false }),
+      backToPick: () => this.setState({ phase: 'pick', draftLog: [] }),
+      saveSession: () => this.setState((s) => {
+        let volume = 0;
+        const exs = s.draftLog.map((ex) => {
+          const weights = ex.sets.map((st) => parseFloat(st.weight) || 0);
+          const reps = ex.sets.map((st) => st.reps || '0');
+          ex.sets.forEach((st) => { volume += (parseFloat(st.weight) || 0) * (parseFloat(st.reps) || 0); });
+          const allSame = weights.every((wt) => wt === weights[0]);
+          const detail = allSame ? (weights[0] + ' ×' + reps.join(',')) : ex.sets.map((st) => st.weight + '×' + st.reps).join(', ');
+          return { name: ex.name, detail, pr: Math.max.apply(null, weights) > ex.max };
+        });
+        const sess = { name: s.programShort || 'PUSH', date: 'TODAY · 25 JUN', color: s.programColor, meta: exs.length + ' EX · ' + Math.round(volume).toLocaleString() + ' KG', exercises: exs, note: (s.sessionNote || '').trim() };
+        const notes = { ...s.exerciseNotes };
+        s.draftLog.forEach((ex) => { if ((ex.note || '').trim()) { notes[ex.name] = [{ date: 'TODAY · 25 JUN', text: ex.note.trim() }, ...(notes[ex.name] || [])]; } });
+        return { sessions: [sess, ...s.sessions], exerciseNotes: notes, modal: false, phase: 'pick', draftLog: [], active: 'training' };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>
