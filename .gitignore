@@ -7,3 +7,8 @@ fitness.db.lock
 *.db-wal
 .google-credentials.json
 .google-tokens.json
+.withings-credentials.json
+.withings-tokens.json
+.DS_Store
+server.log
+.vscode/

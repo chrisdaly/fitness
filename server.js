@@ -76,6 +76,12 @@ db.exec(`
     slept_ok   INTEGER NOT NULL DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
+  CREATE TABLE IF NOT EXISTS daily_recovery (
+    date       TEXT PRIMARY KEY,
+    rhr        REAL,
+    hrv_ms     REAL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS insight_notes (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     content    TEXT NOT NULL,
@@ -83,6 +89,13 @@ db.exec(`
     created_at TEXT DEFAULT (datetime('now'))
   );
 `)
+
+// Added Sep 2026: calorie total per day, alongside the older on_plan flag
+try { db.exec(`ALTER TABLE daily_diet ADD COLUMN kcal INTEGER`) } catch { /* already present */ }
+try { db.exec(`ALTER TABLE daily_diet ADD COLUMN items TEXT`) } catch { /* already present */ }
+// Average heart rate on auto-imported sessions, so an incline walk can be costed
+// properly instead of being under-read by its low step count.
+try { db.exec(`ALTER TABLE runs ADD COLUMN avg_hr INTEGER`) } catch { /* already present */ }
 
 const app = express()
 app.use(express.json())
@@ -121,7 +134,7 @@ app.get('/api/today', (req, res) => {
   const bwAll = q('SELECT * FROM body_weight ORDER BY date DESC LIMIT 600').all([])
   const bwHistory = bwAll.slice().reverse()
   const stepsRow = q('SELECT steps FROM daily_steps WHERE date = ?').get([today])
-  const dietRow = q('SELECT on_plan FROM daily_diet WHERE date = ?').get([today])
+  const dietRow = q('SELECT on_plan, kcal, items FROM daily_diet WHERE date = ?').get([today])
   const sleepRow = q('SELECT slept_ok FROM daily_sleep WHERE date = ?').get([today])
   res.json({
     session: row ? getSession(row.id) : null,
@@ -130,6 +143,8 @@ app.get('/api/today', (req, res) => {
     lastRun: q('SELECT * FROM runs ORDER BY date DESC, id DESC LIMIT 1').get([]) || null,
     todaySteps: stepsRow ? stepsRow.steps : null,
     todayDiet: dietRow ? !!dietRow.on_plan : null,
+    todayKcal: dietRow ? dietRow.kcal : null,
+    todayFoods: dietRow ? dietRow.items : null,
     todaySleepHours: sleepRow ? sleepRow.slept_ok : null
   })
 })
@@ -213,11 +228,27 @@ app.get('/api/steps', (req, res) => {
 
 // Diet
 app.post('/api/diet', (req, res) => {
-  const { date, on_plan } = req.body
+  const { date, on_plan, kcal, items } = req.body
   const d = date || new Date().toISOString().slice(0, 10)
   const val = on_plan ? 1 : 0
   q('INSERT INTO daily_diet (date, on_plan) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET on_plan = excluded.on_plan').run([d, val])
-  res.json({ date: d, on_plan: !!val })
+  // kcal and items are optional: only overwrite when this call actually carries them
+  if (kcal != null) q('UPDATE daily_diet SET kcal = ? WHERE date = ?').run([parseInt(kcal) || 0, d])
+  if (items != null) q('UPDATE daily_diet SET items = ? WHERE date = ?').run([String(items), d])
+  res.json(q('SELECT date, on_plan, kcal, items FROM daily_diet WHERE date = ?').get([d]))
+})
+
+// Add a single food to today's running total, so one meal can be logged at a time
+app.post('/api/diet/add', (req, res) => {
+  const { date, name, kcal } = req.body
+  const d = date || new Date().toISOString().slice(0, 10)
+  const add = parseInt(kcal) || 0
+  const row = q('SELECT kcal, items FROM daily_diet WHERE date = ?').get([d]) || {}
+  const total = (row.kcal || 0) + add
+  const items = [row.items, name ? `${name} ${add}` : null].filter(Boolean).join(' · ')
+  q(`INSERT INTO daily_diet (date, on_plan, kcal, items) VALUES (?, 0, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET kcal = excluded.kcal, items = excluded.items`).run([d, total, items])
+  res.json(q('SELECT date, on_plan, kcal, items FROM daily_diet WHERE date = ?').get([d]))
 })
 
 // Sleep (stores hours in slept_ok column; 0 = not logged)
@@ -234,7 +265,7 @@ app.get('/api/sleep', (req, res) => {
 })
 
 app.get('/api/diet', (req, res) => {
-  res.json(q('SELECT date, on_plan FROM daily_diet ORDER BY date DESC LIMIT 60').all([]))
+  res.json(q('SELECT date, on_plan, kcal, items FROM daily_diet ORDER BY date DESC LIMIT 60').all([]))
 })
 
 // Combined habits for heatmap (last 84 days = 12 weeks)
@@ -271,14 +302,37 @@ app.get('/api/runs', (req, res) => {
   res.json(q('SELECT * FROM runs ORDER BY date DESC, id DESC LIMIT 60').all([]))
 })
 
+app.patch('/api/runs/:id', (req, res) => {
+  const { date, distance_km, duration_sec, notes } = req.body
+  const run = q('SELECT * FROM runs WHERE id = ?').get([req.params.id])
+  if (!run) return res.status(404).json({ error: 'Not found' })
+  q('UPDATE runs SET date = ?, distance_km = ?, duration_sec = ?, notes = ? WHERE id = ?').run([
+    date ?? run.date, distance_km ?? run.distance_km, duration_sec ?? run.duration_sec, notes ?? run.notes, req.params.id
+  ])
+  res.json(q('SELECT * FROM runs WHERE id = ?').get([req.params.id]))
+})
+
+app.delete('/api/runs/:id', (req, res) => {
+  const run = q('SELECT * FROM runs WHERE id = ?').get([req.params.id])
+  if (!run) return res.status(404).json({ error: 'Not found' })
+  q('DELETE FROM runs WHERE id = ?').run([req.params.id])
+  res.json({ deleted: req.params.id })
+})
+
 app.get('/api/prs', (req, res) => {
+  const since = req.query.since
+  const params = []
+  let dateFilter = ''
+  if (since) { dateFilter = 'AND sess.date >= ?'; params.push(since) }
   res.json(q(`
     SELECT e.name, MAX(s.weight_kg) as best_kg, MAX(s.reps) as best_reps
-    FROM sets s JOIN exercises e ON e.id = s.exercise_id
-    WHERE s.weight_kg IS NOT NULL AND s.weight_kg > 0
+    FROM sets s
+    JOIN exercises e ON e.id = s.exercise_id
+    JOIN sessions sess ON sess.id = e.session_id
+    WHERE s.weight_kg IS NOT NULL AND s.weight_kg > 0 ${dateFilter}
     GROUP BY LOWER(TRIM(e.name))
     ORDER BY best_kg DESC
-  `).all([]))
+  `).all(params))
 })
 
 app.patch('/api/sets/:id', (req, res) => {
@@ -411,10 +465,9 @@ const oauth2Client = new google.auth.OAuth2(
 )
 
 const SCOPES = [
-  'https://www.googleapis.com/auth/fitness.activity.read',
-  'https://www.googleapis.com/auth/fitness.body.read',
-  'https://www.googleapis.com/auth/fitness.sleep.read',
-  'https://www.googleapis.com/auth/fitness.heart_rate.read',
+  'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
+  'https://www.googleapis.com/auth/googlehealth.sleep.readonly',
+  'https://www.googleapis.com/auth/googlehealth.health_metrics_and_measurements.readonly',
 ]
 
 function loadTokens() {
@@ -452,77 +505,306 @@ app.get('/api/fitbit/status', (req, res) => {
   res.json({ connected: !!(tokens?.access_token), last_sync: tokens?.last_sync || null })
 })
 
+// Google Health API (v4) — replaces the dead Google Fit REST API.
+// Reads Fitbit device data directly: steps + sleep. Weight comes from Withings.
+const HEALTH_BASE = 'https://health.googleapis.com/v4'
+const TZ = 'Asia/Dubai'
+
+async function healthGet(pathPart, params) {
+  const { token } = await oauth2Client.getAccessToken().then(t => ({ token: t.token || t }))
+  const u = new URL(`${HEALTH_BASE}/${pathPart}`)
+  for (const [k, v] of Object.entries(params || {})) u.searchParams.set(k, v)
+  const r = await fetch(u, { headers: { Authorization: `Bearer ${token}` } })
+  const j = await r.json()
+  if (!r.ok) throw new Error(`Health API ${r.status}: ${JSON.stringify(j.error || j).slice(0, 300)}`)
+  return j
+}
+
+// Follow nextPageToken until exhausted (capped); returns all dataPoints
+async function healthGetAll(pathPart, params, maxPages = 40) {
+  const all = []
+  let pageToken
+  for (let i = 0; i < maxPages; i++) {
+    const j = await healthGet(pathPart, pageToken ? { ...params, pageToken } : params)
+    all.push(...(j.dataPoints || []))
+    pageToken = j.nextPageToken
+    if (!pageToken) break
+  }
+  return all
+}
+
+function localDate(iso) {
+  return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
+}
+
 app.post('/api/fitbit/sync', async (req, res) => {
   const tokens = loadTokens()
   if (!tokens?.access_token) return res.status(401).json({ error: 'Not connected. Visit /auth/google-health first.' })
   oauth2Client.setCredentials(tokens)
 
   const days = parseInt(req.query.days) || 7
-  const now = Date.now()
-  const startMs = now - days * 24 * 60 * 60 * 1000
-
-  const fitness = google.fitness({ version: 'v1', auth: oauth2Client })
-
-  async function aggregate(dataTypeName) {
-    const r = await fitness.users.dataset.aggregate({
-      userId: 'me',
-      requestBody: {
-        aggregateBy: [{ dataTypeName }],
-        bucketByTime: { durationMillis: 86400000 },
-        startTimeMillis: startMs,
-        endTimeMillis: now,
-      },
-    })
-    return r.data.bucket || []
-  }
-
+  const startIso = new Date(Date.now() - days * 86400000).toISOString()
   const results = { synced: [], skipped: [] }
 
-  // Steps
-  const stepBuckets = await aggregate('com.google.step_count.delta')
-  for (const b of stepBuckets) {
-    const date = new Date(parseInt(b.startTimeMillis)).toISOString().slice(0, 10)
-    const steps = b.dataset?.[0]?.point?.reduce((s, p) => s + (p.value?.[0]?.intVal || 0), 0) || 0
-    if (steps > 0) {
-      q('INSERT INTO daily_steps (date, steps) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET steps = excluded.steps').run([date, steps])
-      results.synced.push(`steps ${date}: ${steps}`)
+  try {
+    // Steps: sum interval points per local day. Fitbit platform only —
+    // HEALTH_KIT points are the iPhone counting the same walks twice.
+    const stepPoints = await healthGetAll('users/me/dataTypes/steps/dataPoints', {
+      filter: `steps.interval.start_time >= "${startIso}"`,
+    })
+    const stepsByDay = {}
+    for (const p of stepPoints) {
+      if (p.dataSource?.platform !== 'FITBIT') continue
+      const s = p.steps
+      if (!s) continue
+      const date = localDate(s.interval?.startTime || s.sampleTime?.physicalTime)
+      stepsByDay[date] = (stepsByDay[date] || 0) + Number(s.count ?? s.value ?? 0)
     }
-  }
-
-  // Weight
-  const weightBuckets = await aggregate('com.google.weight')
-  for (const b of weightBuckets) {
-    const date = new Date(parseInt(b.startTimeMillis)).toISOString().slice(0, 10)
-    const pts = b.dataset?.[0]?.point || []
-    if (pts.length) {
-      const kg = pts[pts.length - 1].value?.[0]?.fpVal
-      if (kg) {
-        q('INSERT INTO body_weight (date, weight_kg) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg').run([date, Math.round(kg * 10) / 10])
-        results.synced.push(`weight ${date}: ${kg}kg`)
+    // The window's oldest local day is only partially covered by the fetch;
+    // writing its partial sum would clobber a stored full-day count.
+    const partialDay = localDate(startIso)
+    for (const [date, steps] of Object.entries(stepsByDay).sort()) {
+      if (date === partialDay) continue
+      if (steps > 0) {
+        q('INSERT INTO daily_steps (date, steps) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET steps = excluded.steps').run([date, Math.round(steps)])
+        results.synced.push(`steps ${date}: ${Math.round(steps)}`)
       }
     }
-  }
 
-  // Sleep (total hours per day)
-  const sleepBuckets = await aggregate('com.google.sleep.segment')
-  for (const b of sleepBuckets) {
-    const date = new Date(parseInt(b.startTimeMillis)).toISOString().slice(0, 10)
-    const pts = b.dataset?.[0]?.point || []
-    let sleepMs = 0
-    for (const p of pts) {
-      const type = p.value?.[1]?.intVal
-      if (type >= 1) sleepMs += parseInt(p.endTimeNanos - p.startTimeNanos) / 1e6
+    // Sleep: sessions credited to wake-up date. The sleep type rejects
+    // server-side filters, so fetch unfiltered and window client-side.
+    // Google can hold provisional fragments alongside the revised full-night
+    // session, so per day: overlapping intervals keep the longest session only,
+    // disjoint sessions (night + nap) sum.
+    const sleepPoints = await healthGetAll('users/me/dataTypes/sleep/dataPoints', {})
+    const windowStart = Date.now() - days * 86400000
+    const sleepByDay = {}
+    for (const p of sleepPoints) {
+      if (p.dataSource?.platform && p.dataSource.platform !== 'FITBIT') continue
+      const s = p.sleep
+      if (!s?.interval?.endTime) continue
+      if (new Date(s.interval.endTime).getTime() < windowStart) continue
+      let mins = Number(s.summary?.minutesAsleep ?? s.summary?.minutesInSleepPeriod ?? 0)
+      if (!mins && Array.isArray(s.stages)) {
+        mins = s.stages
+          .filter(st => st.type !== 'AWAKE')
+          .reduce((a, st) => a + (new Date(st.endTime) - new Date(st.startTime)) / 60000, 0)
+      }
+      if (!mins) continue
+      const date = localDate(s.interval.endTime)
+      ;(sleepByDay[date] = sleepByDay[date] || []).push({
+        start: new Date(s.interval.startTime || s.interval.endTime).getTime(),
+        end: new Date(s.interval.endTime).getTime(),
+        mins,
+      })
     }
-    const hours = Math.round((sleepMs / 3600000) * 10) / 10
-    if (hours > 0) {
+    for (const [date, sessions] of Object.entries(sleepByDay).sort()) {
+      sessions.sort((a, b) => b.mins - a.mins)
+      const kept = []
+      for (const sess of sessions) {
+        if (kept.some(k => sess.start < k.end && k.start < sess.end)) continue
+        kept.push(sess)
+      }
+      const mins = kept.reduce((a, s) => a + s.mins, 0)
+      const hours = Math.round((mins / 60) * 10) / 10
       q('INSERT INTO daily_sleep (date, slept_ok) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET slept_ok = excluded.slept_ok').run([date, hours])
       results.synced.push(`sleep ${date}: ${hours}h`)
     }
+
+    // Walks/runs: auto-import Fitbit exercise sessions into the runs table.
+    // Skip if a run already exists that day within 0.3km (manual entry wins).
+    const exPoints = await healthGetAll('users/me/dataTypes/exercise/dataPoints', {})
+    for (const p of exPoints) {
+      if (p.dataSource?.platform !== 'FITBIT') continue
+      const ex = p.exercise
+      if (!ex?.interval?.endTime) continue
+      if (!['WALKING', 'RUNNING', 'JOGGING', 'HIKING', 'TREADMILL'].includes(ex.exerciseType)) continue
+      if (new Date(ex.interval.endTime).getTime() < windowStart) continue
+      const km = Math.round((Number(ex.metricsSummary?.distanceMillimeters || 0) / 1e6) * 100) / 100
+      if (km < 0.5) continue
+      const date = localDate(ex.interval.endTime)
+      const durSec = Math.round(parseFloat(ex.activeDuration || '0'))
+      const existing = q('SELECT id, distance_km FROM runs WHERE date = ?').all([date])
+      if (existing.some(r => Math.abs((r.distance_km || 0) - km) < 0.3)) continue
+      const hr = ex.metricsSummary?.averageHeartRateBeatsPerMinute
+      const note = `Auto: ${ex.displayName || ex.exerciseType}${hr ? ` · avg HR ${hr}` : ''}`
+      q('INSERT INTO runs (date, distance_km, duration_sec, notes, avg_hr) VALUES (?, ?, ?, ?, ?)').run([date, km, durSec || null, note, hr ? Math.round(hr) : null])
+      results.synced.push(`run ${date}: ${km}km (${ex.exerciseType.toLowerCase()})`)
+    }
+
+    // Recovery: daily resting HR + HRV. Needs the health_metrics scope —
+    // degrade gracefully until it's granted.
+    try {
+      const rhrPoints = await healthGetAll('users/me/dataTypes/daily-resting-heart-rate/dataPoints', {})
+      const hrvPoints = await healthGetAll('users/me/dataTypes/daily-heart-rate-variability/dataPoints', {})
+      const rec = {}
+      const pickDate = v => {
+        if (v?.date) return `${v.date.year}-${String(v.date.month).padStart(2, '0')}-${String(v.date.day).padStart(2, '0')}`
+        const t = v?.interval?.endTime || v?.interval?.startTime || v?.sampleTime?.physicalTime
+        return t ? localDate(t) : null
+      }
+      for (const p of rhrPoints) {
+        const v = p.dailyRestingHeartRate
+        const date = pickDate(v)
+        const bpm = Number(v?.beatsPerMinute ?? v?.value ?? 0)
+        if (date && bpm) rec[date] = { ...rec[date], rhr: bpm }
+      }
+      for (const p of hrvPoints) {
+        const v = p.dailyHeartRateVariability
+        const date = pickDate(v)
+        const ms = Number(v?.averageHeartRateVariabilityMilliseconds ?? v?.rmssdMilliseconds ?? v?.value ?? 0)
+        if (date && ms) rec[date] = { ...rec[date], hrv: ms }
+      }
+      for (const [date, { rhr, hrv }] of Object.entries(rec).sort()) {
+        if (new Date(date).getTime() < windowStart - 86400000) continue
+        q(`INSERT INTO daily_recovery (date, rhr, hrv_ms) VALUES (?, ?, ?)
+           ON CONFLICT(date) DO UPDATE SET rhr = COALESCE(excluded.rhr, rhr), hrv_ms = COALESCE(excluded.hrv_ms, hrv_ms)`).run([date, rhr || null, hrv || null])
+        results.synced.push(`recovery ${date}: rhr ${rhr || '-'} hrv ${hrv || '-'}`)
+      }
+    } catch (e) {
+      if (e.message.includes('403')) results.skipped.push('recovery: needs health_metrics scope, re-consent at /auth/google-health')
+      else throw e
+    }
+  } catch (e) {
+    return res.status(502).json({ error: e.message, hint: 'If scope/permission error: re-consent at /auth/google-health. Inspect raw shapes at /api/health/raw?type=steps' })
   }
 
-  const newTokens = { ...loadTokens(), last_sync: new Date().toISOString() }
-  saveTokens(newTokens)
+  saveTokens({ ...loadTokens(), last_sync: new Date().toISOString() })
   res.json(results)
+})
+
+app.get('/api/recovery', (req, res) => {
+  res.json(q('SELECT date, rhr, hrv_ms FROM daily_recovery ORDER BY date').all([]))
+})
+
+// Debug: see the raw Health API response for a data type while we verify shapes
+app.get('/api/health/raw', async (req, res) => {
+  const tokens = loadTokens()
+  if (!tokens?.access_token) return res.status(401).json({ error: 'Not connected' })
+  oauth2Client.setCredentials(tokens)
+  const type = req.query.type || 'steps'
+  const days = parseInt(req.query.days) || 2
+  const startIso = new Date(Date.now() - days * 86400000).toISOString()
+  try {
+    const filter = req.query.filter !== undefined
+      ? req.query.filter
+      : `${type.replace(/-/g, '_')}.interval.start_time >= "${startIso}"`
+    const params = filter ? { filter } : {}
+    const j = await healthGet(`users/me/dataTypes/${type}/dataPoints`, params)
+    res.json(j)
+  } catch (e) {
+    res.status(502).json({ error: e.message })
+  }
+})
+
+// ── WITHINGS SCALE SYNC ─────────────────────────────────────────────────────
+// Weight goes scale → Withings cloud → here, bypassing the Fitbit/Google Fit pipe.
+// Needs .withings-credentials.json: {"client_id":"...","client_secret":"..."}
+// from a (free) app registered at developer.withings.com with callback
+// http://localhost:7779/auth/withings/callback
+const W_TOKENS_PATH = process.env.FLY_APP_NAME
+  ? '/data/.withings-tokens.json'
+  : path.join(__dirname, '.withings-tokens.json')
+const W_CREDS_PATH = path.join(__dirname, '.withings-credentials.json')
+const W_REDIRECT = process.env.FLY_APP_NAME
+  ? 'https://fitlog-chris.fly.dev/auth/withings/callback'
+  : `http://localhost:${PORT}/auth/withings/callback`
+
+function wCreds() {
+  if (process.env.WITHINGS_CLIENT_ID) return { client_id: process.env.WITHINGS_CLIENT_ID, client_secret: process.env.WITHINGS_CLIENT_SECRET }
+  try { return JSON.parse(fs.readFileSync(W_CREDS_PATH)) } catch { return null }
+}
+function wLoadTokens() {
+  try { return JSON.parse(fs.readFileSync(W_TOKENS_PATH)) } catch { return null }
+}
+function wSaveTokens(t) { fs.writeFileSync(W_TOKENS_PATH, JSON.stringify(t, null, 2)) }
+
+async function wRequestToken(params) {
+  const creds = wCreds()
+  const body = new URLSearchParams({ action: 'requesttoken', client_id: creds.client_id, client_secret: creds.client_secret, ...params })
+  const r = await fetch('https://wbsapi.withings.net/v2/oauth2', { method: 'POST', body })
+  const j = await r.json()
+  if (j.status !== 0) throw new Error(`Withings token error (status ${j.status}): ${JSON.stringify(j.error || j)}`)
+  return j.body
+}
+
+async function wAccessToken() {
+  let t = wLoadTokens()
+  if (!t?.access_token) throw new Error('Not connected. Visit /auth/withings first.')
+  const expired = Date.now() > (t.obtained_at || 0) + ((t.expires_in || 0) - 60) * 1000
+  if (expired) {
+    const fresh = await wRequestToken({ grant_type: 'refresh_token', refresh_token: t.refresh_token })
+    t = { ...t, ...fresh, obtained_at: Date.now() }
+    wSaveTokens(t)
+  }
+  return t.access_token
+}
+
+app.get('/auth/withings', (req, res) => {
+  const creds = wCreds()
+  if (!creds) return res.send('<h2>Missing Withings credentials</h2><p>Create .withings-credentials.json with {"client_id":"...","client_secret":"..."} from developer.withings.com</p>')
+  const u = new URL('https://account.withings.com/oauth2_user/authorize2')
+  u.searchParams.set('response_type', 'code')
+  u.searchParams.set('client_id', creds.client_id)
+  u.searchParams.set('scope', 'user.metrics')
+  u.searchParams.set('redirect_uri', W_REDIRECT)
+  u.searchParams.set('state', 'fitlog')
+  res.redirect(u.toString())
+})
+
+app.get('/auth/withings/callback', async (req, res) => {
+  const { code, error } = req.query
+  if (error || !code) return res.send(`<h2>Withings auth error: ${error || 'no code'}</h2><p><a href="/auth/withings">Try again</a></p>`)
+  try {
+    const t = await wRequestToken({ grant_type: 'authorization_code', code, redirect_uri: W_REDIRECT })
+    wSaveTokens({ ...t, obtained_at: Date.now() })
+    res.send('<h2>Withings connected!</h2><p>You can close this tab. <a href="/">Back to FITLOG</a></p>')
+  } catch (e) {
+    console.error('Withings callback error:', e.message)
+    res.send(`<h2>Withings auth failed</h2><p>${e.message}</p><p><a href="/auth/withings">Try again</a></p>`)
+  }
+})
+
+app.get('/api/withings/status', (req, res) => {
+  const t = wLoadTokens()
+  res.json({ connected: !!t?.access_token, last_sync: t?.last_sync || null })
+})
+
+app.post('/api/withings/sync', async (req, res) => {
+  try {
+    const token = await wAccessToken()
+    const days = parseInt(req.query.days) || 14
+    const now = Math.floor(Date.now() / 1000)
+    const body = new URLSearchParams({
+      action: 'getmeas', meastype: '1', category: '1',
+      startdate: String(now - days * 86400), enddate: String(now),
+    })
+    const r = await fetch('https://wbsapi.withings.net/measure', {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` }, body,
+    })
+    const j = await r.json()
+    if (j.status !== 0) return res.status(502).json({ error: `Withings API status ${j.status}`, detail: j.error || j })
+
+    // one reading per day: the earliest (the fasted morning weigh-in is the canonical number)
+    const byDate = {}
+    for (const g of (j.body?.measuregrps || [])) {
+      const m = (g.measures || []).find(x => x.type === 1)
+      if (!m) continue
+      const date = new Date(g.date * 1000).toISOString().slice(0, 10)
+      if (!byDate[date] || g.date < byDate[date].ts) {
+        byDate[date] = { ts: g.date, kg: Math.round(m.value * Math.pow(10, m.unit) * 10) / 10 }
+      }
+    }
+    const synced = []
+    for (const [date, { kg }] of Object.entries(byDate).sort()) {
+      q('INSERT INTO body_weight (date, weight_kg) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg').run([date, kg])
+      synced.push(`${date}: ${kg}kg`)
+    }
+    wSaveTokens({ ...wLoadTokens(), last_sync: new Date().toISOString() })
+    res.json({ synced })
+  } catch (e) {
+    res.status(e.message.includes('Not connected') ? 401 : 500).json({ error: e.message })
+  }
 })
 
 // ── DEV ONLY ────────────────────────────────────────────────────────────────
@@ -546,3 +828,12 @@ if (!process.env.FLY_APP_NAME) {
 }
 
 app.listen(PORT, '0.0.0.0', () => console.log(`fitness on http://0.0.0.0:${PORT}`))
+
+// Google delivers Fitbit data late and revises it after the fact; re-syncing
+// every 4h lets the upserts self-heal without a manual /daily run.
+setInterval(() => {
+  fetch(`http://localhost:${PORT}/api/fitbit/sync?days=3`, { method: 'POST' })
+    .then(r => r.json())
+    .then(j => console.log(`auto-sync: ${(j.synced || []).length} updates${j.error ? ` (${j.error})` : ''}`))
+    .catch(e => console.log('auto-sync failed:', e.message))
+}, 4 * 3600 * 1000)
