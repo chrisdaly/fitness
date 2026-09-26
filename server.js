@@ -10,6 +10,12 @@ const dbPath = process.env.DB_PATH || path.join(__dirname, 'fitness.db')
 try { fs.rmdirSync(dbPath + '.lock') } catch (e) {}
 const db = new Database(dbPath)
 
+// One date helper for the whole server. toISOString() gives the UTC date, which is
+// the wrong day in Dubai before 04:00, so every default date goes through these.
+const TZ = process.env.FITLOG_TZ || 'Asia/Dubai'
+const localDate = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: TZ })
+const todayIso = () => localDate(Date.now())
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS sessions (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -96,6 +102,25 @@ try { db.exec(`ALTER TABLE daily_diet ADD COLUMN items TEXT`) } catch { /* alrea
 // Average heart rate on auto-imported sessions, so an incline walk can be costed
 // properly instead of being under-read by its low step count.
 try { db.exec(`ALTER TABLE runs ADD COLUMN avg_hr INTEGER`) } catch { /* already present */ }
+// Sep 2026: Fitbit WALKING sessions land in `runs` too, so each row records what it
+// was. Anything slower than 9:00/km is a walk and stays out of the run stats.
+try { db.exec(`ALTER TABLE runs ADD COLUMN kind TEXT`) } catch { /* already present */ }
+// Withings knows what time the weigh-in happened; keep it so the hero can say so.
+try { db.exec(`ALTER TABLE body_weight ADD COLUMN measured_at TEXT`) } catch { /* already present */ }
+
+const WALK_PACE_SEC_PER_KM = 540
+db.exec(`UPDATE runs SET kind = CASE
+  WHEN duration_sec IS NOT NULL AND distance_km > 0
+       AND (duration_sec * 1.0 / distance_km) > ${WALK_PACE_SEC_PER_KM} THEN 'walk'
+  WHEN notes LIKE '%Walk%' OR notes LIKE '%Hik%' THEN 'walk'
+  ELSE 'run' END
+WHERE kind IS NULL`)
+
+function classifyRun(distanceKm, durationSec, label) {
+  if (label && /walk|hik/i.test(label)) return 'walk'
+  if (!durationSec || !distanceKm) return 'run'
+  return durationSec / distanceKm > WALK_PACE_SEC_PER_KM ? 'walk' : 'run'
+}
 
 const app = express()
 app.use(express.json())
@@ -129,7 +154,7 @@ function sessionSummary(s) {
 
 // Today snapshot
 app.get('/api/today', (req, res) => {
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayIso()
   const row = q('SELECT id FROM sessions WHERE date = ? ORDER BY id DESC LIMIT 1').get([today])
   const bwAll = q('SELECT * FROM body_weight ORDER BY date DESC LIMIT 600').all([])
   const bwHistory = bwAll.slice().reverse()
@@ -152,7 +177,7 @@ app.get('/api/today', (req, res) => {
 // Create session
 app.post('/api/sessions', (req, res) => {
   const { name, type, color, date } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
+  const d = date || todayIso()
   const r = q('INSERT INTO sessions (date, name, type, color) VALUES (?, ?, ?, ?)').run([d, name || 'Session', type || 'lift', color || '#f4a800'])
   res.json(getSession(r.lastInsertRowid))
 })
@@ -160,7 +185,7 @@ app.post('/api/sessions', (req, res) => {
 // Batch log: create session + all exercises + all sets in one call
 app.post('/api/log', (req, res) => {
   const { name, type, color, note, date, exercises } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
+  const d = date || todayIso()
   const sR = q('INSERT INTO sessions (date, name, type, color, note) VALUES (?, ?, ?, ?, ?)').run([d, name || 'Session', type || 'lift', color || '#f4a800', note || null])
   const sid = sR.lastInsertRowid
   let ord = 0
@@ -183,10 +208,22 @@ app.post('/api/log', (req, res) => {
   res.json(getSession(sid))
 })
 
-// List sessions
+// List sessions. `detail=N` expands the N newest sessions that actually carry sets,
+// so the Training page can render one open table without a request per session.
 app.get('/api/sessions', (req, res) => {
-  const sessions = q('SELECT * FROM sessions ORDER BY date DESC, id DESC LIMIT 90').all([])
-  res.json(sessions.map(sessionSummary))
+  const rows = q('SELECT * FROM sessions ORDER BY date DESC, id DESC LIMIT 200').all([])
+  const sessions = rows.map(sessionSummary)
+  const detail = Math.min(parseInt(req.query.detail) || 0, 12)
+  if (detail) {
+    let filled = 0
+    for (const s of sessions) {
+      if (filled >= detail) break
+      if (!s.total_sets) continue
+      s.exercises = getSession(s.id).exercises
+      filled++
+    }
+  }
+  res.json(sessions)
 })
 
 // Get session
@@ -204,9 +241,11 @@ app.delete('/api/sessions/:id', (req, res) => {
 
 // Body weight
 app.post('/api/body-weight', (req, res) => {
-  const { date, weight_kg } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
-  q('INSERT INTO body_weight (date, weight_kg) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg').run([d, weight_kg])
+  const { date, weight_kg, measured_at } = req.body
+  const d = date || todayIso()
+  const at = measured_at || new Date().toISOString()
+  q(`INSERT INTO body_weight (date, weight_kg, measured_at) VALUES (?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg, measured_at = excluded.measured_at`).run([d, weight_kg, at])
   res.json(q('SELECT * FROM body_weight WHERE date = ?').get([d]))
 })
 
@@ -217,7 +256,7 @@ app.get('/api/body-weight', (req, res) => {
 // Steps
 app.post('/api/steps', (req, res) => {
   const { date, steps } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
+  const d = date || todayIso()
   q('INSERT INTO daily_steps (date, steps) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET steps = excluded.steps').run([d, steps])
   res.json(q('SELECT * FROM daily_steps WHERE date = ?').get([d]))
 })
@@ -229,7 +268,7 @@ app.get('/api/steps', (req, res) => {
 // Diet
 app.post('/api/diet', (req, res) => {
   const { date, on_plan, kcal, items } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
+  const d = date || todayIso()
   const val = on_plan ? 1 : 0
   q('INSERT INTO daily_diet (date, on_plan) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET on_plan = excluded.on_plan').run([d, val])
   // kcal and items are optional: only overwrite when this call actually carries them
@@ -241,7 +280,7 @@ app.post('/api/diet', (req, res) => {
 // Add a single food to today's running total, so one meal can be logged at a time
 app.post('/api/diet/add', (req, res) => {
   const { date, name, kcal } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
+  const d = date || todayIso()
   const add = parseInt(kcal) || 0
   const row = q('SELECT kcal, items FROM daily_diet WHERE date = ?').get([d]) || {}
   const total = (row.kcal || 0) + add
@@ -254,7 +293,7 @@ app.post('/api/diet/add', (req, res) => {
 // Sleep (stores hours in slept_ok column; 0 = not logged)
 app.post('/api/sleep', (req, res) => {
   const { date, hours } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
+  const d = date || todayIso()
   const h = parseFloat(hours) || 0
   q('INSERT INTO daily_sleep (date, slept_ok) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET slept_ok = excluded.slept_ok').run([d, h])
   res.json({ date: d, hours: h })
@@ -272,7 +311,7 @@ app.get('/api/diet', (req, res) => {
 app.get('/api/habits', (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 84, 365)
   const since = new Date(); since.setDate(since.getDate() - days + 1)
-  const sinceStr = since.toISOString().slice(0, 10)
+  const sinceStr = localDate(since)
   const sleeps  = q('SELECT date, slept_ok as hours FROM daily_sleep WHERE date >= ?').all([sinceStr])
   const diets   = q('SELECT date, on_plan FROM daily_diet WHERE date >= ?').all([sinceStr])
   const steps   = q('SELECT date, steps FROM daily_steps WHERE date >= ?').all([sinceStr])
@@ -284,7 +323,7 @@ app.get('/api/habits', (req, res) => {
   const result = []
   for (let i = days - 1; i >= 0; i--) {
     const d = new Date(); d.setDate(d.getDate() - i)
-    const date = d.toISOString().slice(0, 10)
+    const date = localDate(d)
     result.push({ date, sleep_h: sm[date] || 0, diet_ok: dm[date] || 0, steps: stm[date] || 0, workout: ws.has(date) ? 1 : 0 })
   }
   res.json(result)
@@ -292,9 +331,10 @@ app.get('/api/habits', (req, res) => {
 
 // Runs
 app.post('/api/runs', (req, res) => {
-  const { date, distance_km, duration_sec, notes } = req.body
-  const d = date || new Date().toISOString().slice(0, 10)
-  const r = q('INSERT INTO runs (date, distance_km, duration_sec, notes) VALUES (?, ?, ?, ?)').run([d, distance_km, duration_sec || null, notes || null])
+  const { date, distance_km, duration_sec, notes, kind } = req.body
+  const d = date || todayIso()
+  const k = kind || classifyRun(distance_km, duration_sec, notes)
+  const r = q('INSERT INTO runs (date, distance_km, duration_sec, notes, kind) VALUES (?, ?, ?, ?, ?)').run([d, distance_km, duration_sec || null, notes || null, k])
   res.json(q('SELECT * FROM runs WHERE id = ?').get([r.lastInsertRowid]))
 })
 
@@ -500,15 +540,32 @@ app.get('/auth/google-health/callback', async (req, res) => {
   }
 })
 
+// Testing-mode Google Cloud projects expire the refresh token weekly, so "connected"
+// is not the same as "working". A recorded sync error, or a last_sync older than the
+// 4h auto-sync can explain, both mean the header chip should ask for a reconnect.
+const STALE_SYNC_HOURS = 30
+function syncStatus(tokens, extra = {}) {
+  const connected = !!tokens?.access_token
+  const lastSync = tokens?.last_sync || null
+  const ageH = lastSync ? (Date.now() - new Date(lastSync).getTime()) / 3600000 : null
+  const stale = ageH == null || ageH > STALE_SYNC_HOURS
+  return {
+    connected,
+    ok: connected && !tokens?.last_error && !stale,
+    last_sync: lastSync,
+    stale_hours: ageH == null ? null : Math.round(ageH * 10) / 10,
+    last_error: tokens?.last_error || null,
+    reconnect_url: extra.reconnect_url || null,
+  }
+}
+
 app.get('/api/fitbit/status', (req, res) => {
-  const tokens = loadTokens()
-  res.json({ connected: !!(tokens?.access_token), last_sync: tokens?.last_sync || null })
+  res.json(syncStatus(loadTokens(), { reconnect_url: '/auth/google-health' }))
 })
 
 // Google Health API (v4) — replaces the dead Google Fit REST API.
 // Reads Fitbit device data directly: steps + sleep. Weight comes from Withings.
 const HEALTH_BASE = 'https://health.googleapis.com/v4'
-const TZ = 'Asia/Dubai'
 
 async function healthGet(pathPart, params) {
   const { token } = await oauth2Client.getAccessToken().then(t => ({ token: t.token || t }))
@@ -531,10 +588,6 @@ async function healthGetAll(pathPart, params, maxPages = 40) {
     if (!pageToken) break
   }
   return all
-}
-
-function localDate(iso) {
-  return new Date(iso).toLocaleDateString('en-CA', { timeZone: TZ })
 }
 
 app.post('/api/fitbit/sync', async (req, res) => {
@@ -628,7 +681,8 @@ app.post('/api/fitbit/sync', async (req, res) => {
       if (existing.some(r => Math.abs((r.distance_km || 0) - km) < 0.3)) continue
       const hr = ex.metricsSummary?.averageHeartRateBeatsPerMinute
       const note = `Auto: ${ex.displayName || ex.exerciseType}${hr ? ` · avg HR ${hr}` : ''}`
-      q('INSERT INTO runs (date, distance_km, duration_sec, notes, avg_hr) VALUES (?, ?, ?, ?, ?)').run([date, km, durSec || null, note, hr ? Math.round(hr) : null])
+      const kind = classifyRun(km, durSec, `${ex.exerciseType} ${ex.displayName || ''}`)
+      q('INSERT INTO runs (date, distance_km, duration_sec, notes, avg_hr, kind) VALUES (?, ?, ?, ?, ?, ?)').run([date, km, durSec || null, note, hr ? Math.round(hr) : null, kind])
       results.synced.push(`run ${date}: ${km}km (${ex.exerciseType.toLowerCase()})`)
     }
 
@@ -666,10 +720,11 @@ app.post('/api/fitbit/sync', async (req, res) => {
       else throw e
     }
   } catch (e) {
+    saveTokens({ ...loadTokens(), last_error: e.message })
     return res.status(502).json({ error: e.message, hint: 'If scope/permission error: re-consent at /auth/google-health. Inspect raw shapes at /api/health/raw?type=steps' })
   }
 
-  saveTokens({ ...loadTokens(), last_sync: new Date().toISOString() })
+  saveTokens({ ...loadTokens(), last_sync: new Date().toISOString(), last_error: null })
   res.json(results)
 })
 
@@ -766,8 +821,7 @@ app.get('/auth/withings/callback', async (req, res) => {
 })
 
 app.get('/api/withings/status', (req, res) => {
-  const t = wLoadTokens()
-  res.json({ connected: !!t?.access_token, last_sync: t?.last_sync || null })
+  res.json(syncStatus(wLoadTokens(), { reconnect_url: '/auth/withings' }))
 })
 
 app.post('/api/withings/sync', async (req, res) => {
@@ -790,19 +844,22 @@ app.post('/api/withings/sync', async (req, res) => {
     for (const g of (j.body?.measuregrps || [])) {
       const m = (g.measures || []).find(x => x.type === 1)
       if (!m) continue
-      const date = new Date(g.date * 1000).toISOString().slice(0, 10)
+      const date = localDate(g.date * 1000)
       if (!byDate[date] || g.date < byDate[date].ts) {
         byDate[date] = { ts: g.date, kg: Math.round(m.value * Math.pow(10, m.unit) * 10) / 10 }
       }
     }
     const synced = []
-    for (const [date, { kg }] of Object.entries(byDate).sort()) {
-      q('INSERT INTO body_weight (date, weight_kg) VALUES (?, ?) ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg').run([date, kg])
+    for (const [date, { kg, ts }] of Object.entries(byDate).sort()) {
+      const at = new Date(ts * 1000).toISOString()
+      q(`INSERT INTO body_weight (date, weight_kg, measured_at) VALUES (?, ?, ?)
+         ON CONFLICT(date) DO UPDATE SET weight_kg = excluded.weight_kg, measured_at = excluded.measured_at`).run([date, kg, at])
       synced.push(`${date}: ${kg}kg`)
     }
-    wSaveTokens({ ...wLoadTokens(), last_sync: new Date().toISOString() })
+    wSaveTokens({ ...wLoadTokens(), last_sync: new Date().toISOString(), last_error: null })
     res.json({ synced })
   } catch (e) {
+    try { wSaveTokens({ ...wLoadTokens(), last_error: e.message }) } catch { /* no token file yet */ }
     res.status(e.message.includes('Not connected') ? 401 : 500).json({ error: e.message })
   }
 })
