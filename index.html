@@ -345,6 +345,7 @@ a{ color:inherit; text-decoration:none }
   line-height:1; color:var(--accent) }
 .goal-tile-num{ display:flex; align-items:baseline; gap:12px; margin-top:10px }
 .goal-tile-val{ font-family:'Big Shoulders Display',sans-serif; font-weight:900; font-size:60px; line-height:0.8 }
+.goal-tile-val.na{ font-family:'Archivo',sans-serif; font-weight:800; font-size:38px; opacity:0.6 }
 .goal-tile-target{ font-weight:800; font-size:13px; letter-spacing:0.06em }
 .goal-tile-bar{ height:10px; margin-top:18px; background:var(--track) }
 .goal-tile-bar i{ display:block; height:100%; background:var(--accent); width:var(--w);
@@ -695,6 +696,7 @@ const PROGRAMS = [
 // so the old RUN days are rest/steps days.
 const ROUTINE = { 0:null, 1:'PUSH', 2:'PULL', 3:null, 4:'LEGS', 5:'UPPER', 6:null }
 const CORE = ['PUSH', 'PULL', 'LEGS']
+const LIFT_TYPES = ['PUSH', 'PULL', 'LEGS', 'UPPER']
 
 const ETA_MAX_DAYS = 550                  // past ~18 months a projection is not a plan
 const STEP_TARGET = 10000
@@ -807,6 +809,8 @@ function typeOf(s) {
   if (t.includes('RUN')) return 'CARDIO'
   return t.split(/[·\s]/)[0] || 'SESSION'
 }
+
+const isLift = s => LIFT_TYPES.includes(typeOf(s))
 
 // One scoring function for the day: sleep, food, steps, workout.
 function dayScore(h) {
@@ -1494,8 +1498,10 @@ function yearGridHTML() {
     cols.push(cells.join(''))
   }
   const year = sessions.filter(s => s.date >= YEAR_START)
+  const other = year.filter(s => !isLift(s)).length
   const legend = ['PUSH','PULL','LEGS','UPPER'].map(t =>
     `<div class="grid-legend-row"><span class="grid-legend-sw" style="--c:${TYPE_COLOR[t]}"></span><span>${t}</span><b>${year.filter(s => typeOf(s) === t).length}</b></div>`).join('')
+    + (other ? `<div class="grid-legend-row"><span class="grid-legend-sw" style="--c:${MUTED}"></span><span>CARDIO</span><b>${other}</b></div>` : '')
   return `<div class="grid-card">
     <div class="grid-scroll">
       <div class="grid-days">${['M','T','W','T','F','S','S'].map(l => `<div>${l}</div>`).join('')}</div>
@@ -1578,7 +1584,7 @@ function renderTraining() {
     <div class="page-head">
       <div>
         <div class="page-title">TRAINING</div>
-        <div class="page-sub">WEEK ${weekNum()} · ${year.length} SESSIONS IN ${YEAR}</div>
+        <div class="page-sub">WEEK ${weekNum()} · ${year.filter(isLift).length} LIFTS IN ${YEAR} · ${year.length} SESSIONS</div>
       </div>
       <div class="head-btns">
         <button class="btn-ghost" data-act="open-import">IMPORT NOTES</button>
@@ -1649,7 +1655,7 @@ function paceChartHTML() {
 
   const stats = [
     { lbl:'PLAN', val:`${PLAN_KG_PER_WEEK.toFixed(1)} KG/WK` },
-    { lbl:'ACTUAL · 14D', val: weekly == null ? '—' : `${Math.abs(weekly).toFixed(1)} KG/WK` },
+    { lbl:'ACTUAL · 14D', val: weekly == null ? '—' : `${weekly > 0 ? '+' : '−'}${Math.abs(weekly).toFixed(1)} KG/WK` },
     { lbl:`${goal} KG`, val: etaMs ? `~${fmtDayMonMs(etaMs)}` : '—' },
   ]
   return { card: `<div class="pace-card">
@@ -1695,9 +1701,15 @@ function cutCardHTML() {
   const proj = projection()
   const etaMs = proj.etaMs
   const hist = [...(todayData.bwHistory || [])].sort((a,b) => a.date < b.date ? -1 : 1)
-  const summary = `${fmtKg(start - w)} kg down since ${fmtDayMon(goals.cut_start || CUT_START)}, ${(w-goal).toFixed(1)} to go. `
+  const moved = start - w
+  const since = fmtDayMon(goals.cut_start || CUT_START)
+  const summary = (moved >= 0
+      ? `${fmtKg(moved)} kg down since ${since}, ${(w-goal).toFixed(1)} to go. `
+      : `${fmtKg(-moved)} kg up on the ${since} start, ${(w-goal).toFixed(1)} to go. `)
     + (proj.weekly == null ? 'Not enough weigh-ins yet for a 14-day average.'
-      : `Averaging ${Math.abs(proj.weekly).toFixed(1)} kg a week over the last 14 days${etaMs ? `, which lands around ${fmtDayMonMs(etaMs)}` : ', which is short of the 1 kg a week the plan needs'}.`)
+      : proj.weekly > 0 ? `Gaining ${proj.weekly.toFixed(1)} kg a week over the last 14 days, so the cut is going backwards.`
+      : etaMs ? `Losing ${Math.abs(proj.weekly).toFixed(1)} kg a week over the last 14 days, which lands around ${fmtDayMonMs(etaMs)}.`
+      : `Losing ${Math.abs(proj.weekly).toFixed(1)} kg a week over the last 14 days, short of the ${PLAN_KG_PER_WEEK} kg a week the plan needs.`)
   // Ink on red: the chart's paper strokes become ink and its gold becomes ink too.
   const chart = heroChartSVG(hist, goal, { clean:true, label:1.45, ink:'26,22,16', accent:'26,22,16', W:760, H:300 })
   return `<div class="cut-card">
@@ -1718,7 +1730,7 @@ function cutCardHTML() {
 function goalTilesHTML() {
   const real = realRuns()
   const yearRuns = real.filter(r => r.date >= YEAR_START)
-  const yearSess = sessions.filter(s => s.date >= YEAR_START)
+  const yearSess = sessions.filter(s => s.date >= YEAR_START && isLift(s))
   const yearKm = yearRuns.reduce((a,r) => a + r.distance_km, 0)
   const yBest = fastest5k(yearRuns)
   const bench = yearPrs['bench press'] || null
@@ -1740,7 +1752,7 @@ function goalTilesHTML() {
         : 'Log a bench press to track this.' },
     { lbl:`SESSIONS · ${YEAR}`, c:GOLD, fg:INK, accent:INK, track:'rgba(26,22,16,0.2)',
       pct: clampPct(yearSess.length), val: yearSess.length, target:'→ 100',
-      sub: `${Math.max(0, 100 - yearSess.length)} to go.` },
+      sub: `${Math.max(0, 100 - yearSess.length)} to go. Lifting only, cardio days not counted.` },
     { lbl:`RUNNING · ${YEAR}`, c:GREEN, fg:PAPER, accent:PAPER, track:'rgba(239,233,218,0.25)',
       pct: clampPct(Math.round(yearKm)), val: fmtKg(yearKm), target:'→ 100 KM',
       sub: `${fmtKg(Math.max(0, 100 - yearKm))} km to go. Walks not counted.` },
@@ -1748,7 +1760,7 @@ function goalTilesHTML() {
   return `<div class="goal-tiles">${tiles.map(t =>
     `<div class="goal-tile" style="--c:${t.c};--fg:${t.fg};--accent:${t.accent};--track:${t.track}">
       <div class="goal-tile-top"><span class="lbl-s">${t.lbl}</span><span class="goal-tile-pct">${t.pct}%</span></div>
-      <div class="goal-tile-num"><span class="goal-tile-val">${t.val}</span><span class="goal-tile-target">${t.target}</span></div>
+      <div class="goal-tile-num"><span class="goal-tile-val${t.val === '—' ? ' na' : ''}">${t.val}</span><span class="goal-tile-target">${t.target}</span></div>
       <div class="goal-tile-bar"><i style="--w:${t.pct}%"></i></div>
       <div class="goal-tile-sub">${esc(t.sub)}</div>
     </div>`).join('')}</div>`
