@@ -7,9 +7,22 @@ Everything personal lives in the `goals` key/value table, reached over HTTP at
 `POST /api/goals`. Never touch `fitness.db` with the sqlite3 CLI: the running server
 holds it.
 
+## Which install you are setting up
+
+Every call below goes to `$FITLOG` and never to a hardcoded port, because more than
+one install can be running on this machine and writing to the wrong one overwrites
+somebody's cut.
+
+```bash
+FITLOG="http://localhost:${PORT:-7779}"
+```
+
+If the user named a port or a URL, use that instead. If more than one install
+answers, say which ones you found and ask which to set up rather than picking.
+
 ## Before you start
 
-1. Is the server up? `curl -s localhost:7779/api/goals`. If not, start it with
+1. Is the server up? `curl -s $FITLOG/api/goals`. If not, start it with
    `npm install && npm run dev` from the project root and wait for it to answer.
 2. Is this already set up? If the response has a `bw_start`, this install has a
    profile. Say whose numbers are already there and ask whether to change them or
@@ -97,11 +110,13 @@ a name stable once they have logged it.
 ## Finish
 
 1. Write everything: one `POST /api/goals` with the whole profile object.
-2. Reload the app and check it: the hero shows their weight and goal, the food tile
+2. Reload `$FITLOG` and check it: the hero shows their weight and goal, the food tile
    shows a kcal budget rather than asking for height, and the header says their name.
+   Give them the URL, since it may not be the default port.
 3. Tell them the three things that are not obvious:
    - **There is no login.** On localhost that is fine. On a public URL it is not.
-   - **Their data is one SQLite file**, `fitness.db`, not in git. Back it up.
+   - **Their data is one SQLite file** at `DB_PATH` (`fitness.db` by default), not in
+     git. Back it up.
    - **`/daily`** is the original author's Apple Notes workflow and is not needed.
      The app logs sessions itself.
 4. Offer to log their first session with them, or leave them to it.
