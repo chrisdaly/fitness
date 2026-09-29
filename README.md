@@ -31,7 +31,11 @@ npm install
 npm run dev          # http://localhost:7779
 ```
 
-Then open the app, go to **Goals → EDIT GOALS**, and fill in:
+Then set up your profile. If you use Claude Code, the fastest route is to run
+**`/setup`** in the project: it asks what it needs (name, age, height, the cut, your
+wearables, your training split), writes it all in, and tells you what it did.
+
+Otherwise, do it by hand: open the app, go to **Goals → EDIT GOALS**, and fill in:
 
 | Field | What it does |
 | --- | --- |
