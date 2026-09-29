@@ -5,13 +5,24 @@ const path = require('path')
 const fs = require('fs')
 const { execSync, spawn } = require('child_process')
 const PORT = process.env.PORT || 7779
+// The Fly app this install deploys to, read from fly.toml so a fork changes one
+// config line and nothing in the code.
+const FLY_APP = process.env.FLY_APP || (() => {
+  try { return (fs.readFileSync(path.join(__dirname, 'fly.toml'), 'utf8').match(/^app *= *['"]([^'"]+)/m) || [])[1] || null }
+  catch { return null }
+})()
+// Base URL for OAuth callbacks. On Fly it follows the app name; set PUBLIC_URL for a
+// custom domain or a tunnel.
+const PUBLIC_URL = process.env.PUBLIC_URL
+  || (process.env.FLY_APP_NAME ? `https://${process.env.FLY_APP_NAME}.fly.dev` : `http://localhost:${process.env.PORT || 7779}`)
 const dbPath = process.env.DB_PATH || path.join(__dirname, 'fitness.db')
 // node-sqlite3-wasm uses a .lock directory — remove stale one from crashed previous run
 try { fs.rmdirSync(dbPath + '.lock') } catch (e) {}
 const db = new Database(dbPath)
 
 // One date helper for the whole server. toISOString() gives the UTC date, which is
-// the wrong day in Dubai before 04:00, so every default date goes through these.
+// the wrong local day for most of the world before dawn, so every default date goes
+// through these. Set FITLOG_TZ to your own zone.
 const TZ = process.env.FITLOG_TZ || 'Asia/Dubai'
 const localDate = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: TZ })
 const todayIso = () => localDate(Date.now())
@@ -495,7 +506,7 @@ const TOKENS_PATH = process.env.FLY_APP_NAME
   ? '/data/.google-tokens.json'
   : path.join(__dirname, '.google-tokens.json')
 const CREDS = process.env.FLY_APP_NAME
-  ? { client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uris: ['https://fitlog-chris.fly.dev/auth/google-health/callback'] }
+  ? { client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uris: [`${PUBLIC_URL}/auth/google-health/callback`] }
   : JSON.parse(fs.readFileSync(path.join(__dirname, '.google-credentials.json'))).web
 
 const oauth2Client = new google.auth.OAuth2(
@@ -761,9 +772,7 @@ const W_TOKENS_PATH = process.env.FLY_APP_NAME
   ? '/data/.withings-tokens.json'
   : path.join(__dirname, '.withings-tokens.json')
 const W_CREDS_PATH = path.join(__dirname, '.withings-credentials.json')
-const W_REDIRECT = process.env.FLY_APP_NAME
-  ? 'https://fitlog-chris.fly.dev/auth/withings/callback'
-  : `http://localhost:${PORT}/auth/withings/callback`
+const W_REDIRECT = `${PUBLIC_URL}/auth/withings/callback`
 
 function wCreds() {
   if (process.env.WITHINGS_CLIENT_ID) return { client_id: process.env.WITHINGS_CLIENT_ID, client_secret: process.env.WITHINGS_CLIENT_SECRET }
@@ -873,7 +882,8 @@ if (!process.env.FLY_APP_NAME) {
         const backup = dbPath + '.bak'
         if (fs.existsSync(backup)) fs.unlinkSync(backup)
         fs.renameSync(dbPath, backup)
-        execSync(`flyctl ssh sftp get /data/fitness.db ${dbPath} --app fitlog-chris`, { stdio: 'inherit' })
+        if (!FLY_APP) throw new Error('no Fly app configured (fly.toml or FLY_APP)')
+        execSync(`flyctl ssh sftp get /data/fitness.db ${dbPath} --app ${FLY_APP}`, { stdio: 'inherit' })
         console.log('prod DB synced, restarting...')
       } catch (e) {
         console.error('sync failed:', e.message)

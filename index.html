@@ -666,14 +666,14 @@ const typeColor = t => TYPE_COLOR[t] || MUTED
 const typeFg = t => t === 'PUSH' ? INK : PAPER
 
 const PROGRAMS = [
-  { id:'push', short:'PUSH', name:'PUSH · POST-CAIRO', exercises:[
+  { id:'push', short:'PUSH', name:'PUSH', exercises:[
     { name:'Bench Press', sets:4, defaultReps:8 },
     { name:'Overhead Press', sets:3, defaultReps:6 },
     { name:'Chest Fly Machine', sets:3, defaultReps:12 },
     { name:'Lateral Raise', sets:4, defaultReps:12 },
     { name:'Tricep Pushdown', sets:3, defaultReps:12 },
   ]},
-  { id:'pull', short:'PULL', name:'PULL · POST-CAIRO', exercises:[
+  { id:'pull', short:'PULL', name:'PULL', exercises:[
     { name:'Lat Pulldown', sets:3, defaultReps:12 },
     { name:'Long Pull', sets:3, defaultReps:12 },
     { name:'Dumbbell Row', sets:3, defaultReps:10 },
@@ -681,7 +681,7 @@ const PROGRAMS = [
     { name:'Bicep Curls Incline Bench', sets:3, defaultReps:12 },
     { name:'Hammer Curls Incline Bench', sets:3, defaultReps:10 },
   ]},
-  { id:'legs', short:'LEGS', name:'LEGS · POST-CAIRO', exercises:[
+  { id:'legs', short:'LEGS', name:'LEGS', exercises:[
     { name:'Leg Curl', sets:3, defaultReps:12 },
     { name:'Leg Extension', sets:3, defaultReps:12 },
     { name:'Angled Leg Press', sets:3, defaultReps:10 },
@@ -692,19 +692,41 @@ const PROGRAMS = [
   ]},
 ]
 
-// Day of week → planned session type (0=Sun … 6=Sat). Running is parked until ~105 kg,
-// so the old RUN days are rest/steps days.
+// Day of week → planned session type (0=Sun … 6=Sat), null being a rest/steps day.
+// Edit this and PROGRAMS above to match your own split.
 const ROUTINE = { 0:null, 1:'PUSH', 2:'PULL', 3:null, 4:'LEGS', 5:'UPPER', 6:null }
 const CORE = ['PUSH', 'PULL', 'LEGS']
 const LIFT_TYPES = ['PUSH', 'PULL', 'LEGS', 'UPPER']
 
 const ETA_MAX_DAYS = 550                  // past ~18 months a projection is not a plan
-const STEP_TARGET = 10000
-const SLEEP_TARGET = 7
+// These three carry a sensible default and are overridden by the profile on load.
+let STEP_TARGET = 10000                   // goals.step_target
+let SLEEP_TARGET = 7                      // goals.sleep_target
+let PLAN_KG_PER_WEEK = 1.0                // goals.plan_kg_per_week
 const WALK_PACE_SEC_PER_KM = 540          // slower than 9:00/km is a walk, not a run
-const CUT_START = '2026-09-12'
-const PLAN_KG_PER_WEEK = 1.0
-const MILESTONES = [[110,'NEW DECADE'], [105,'RUNNING BACK'], [100,'DOUBLE DIGITS']]
+
+// Height and birth date size the calorie budget. They live in the profile, so an
+// unset profile makes the budget say so rather than guess someone's body.
+const bodyMetrics = () => ({ heightCm: +goals.height_cm || 0, birth: goals.birth_date || '' })
+
+// The cut's first day: the profile value, else the earliest weigh-in, else today.
+function cutStartDate() {
+  if (goals.cut_start) return goals.cut_start
+  const h = [...(todayData.bwHistory || [])].sort((a,b) => a.date < b.date ? -1 : 1)
+  return h.length ? h[0].date : localIso()
+}
+
+// Round-number marks on the hero scale, derived from the range being cut. Names come
+// from goals.milestone_labels, a {"105":"RUNNING BACK"} JSON blob, when it has one.
+function milestones(start, goal) {
+  let names = {}
+  try { names = JSON.parse(goals.milestone_labels || '{}') } catch { names = {} }
+  const step = start - goal > 25 ? 10 : 5
+  const out = []
+  for (let kg = Math.floor((start - 0.5) / step) * step; kg > goal + 0.5; kg -= step)
+    out.push([kg, names[kg] || `${kg} KG`])
+  return out
+}
 const EVENING_HOUR = 18
 const BUMP_KG = 0.5                       // a weigh-in up this much shows the why card
 const CAT_COLOR = {
@@ -757,7 +779,7 @@ function esc(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }
 
-// One date helper. toISOString() gives the UTC day, which is yesterday in Dubai
+// One date helper. toISOString() gives the UTC day, which is the previous day
 // before 04:00, so nothing in this file may use it.
 function localIso(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -849,7 +871,7 @@ function lastSessionOfType(t) {
 }
 // Session numbers count up from the first session of the cut, matching the Notes log.
 function sessionNumbers() {
-  const start = goals.cut_start || CUT_START
+  const start = cutStartDate()
   const era = sessions.filter(s => s.date >= start).slice()
     .sort((a,b) => a.date === b.date ? a.id - b.id : (a.date < b.date ? -1 : 1))
   const map = {}
@@ -896,7 +918,6 @@ function projection() {
 
 // Energy budget: Mifflin St Jeor BMR, a sedentary multiplier, plus the real cost of
 // the day's steps. 1 kg of fat is 7700 kcal, so 1 kg/week is a 1100 kcal daily deficit.
-const BODY = { heightCm:185, birth:'1988-05-30' }
 const KCAL_PER_KG_FAT = 7700
 const KCAL_PER_1K_STEPS = 43
 const SEDENTARY = 1.15
@@ -913,9 +934,11 @@ function energy() {
   const today = localIso()
   const steps = (stepsData.find(s => s.date === today) || {}).steps || 0
   const eaten = todayData.todayKcal || 0
-  if (!bw) return { eatToday:0, walkWorth:0, eaten, left:0, steps, over:false, ok:false }
-  const age = Math.floor((Date.now() - new Date(BODY.birth)) / 31557600000)
-  const bmr = 10*bw.weight_kg + 6.25*BODY.heightCm - 5*age + 5
+  const me = bodyMetrics()
+  const needsProfile = !me.heightCm || !me.birth
+  if (!bw || needsProfile) return { eatToday:0, walkWorth:0, eaten, left:0, steps, over:false, ok:false, needsProfile }
+  const age = Math.floor((Date.now() - new Date(me.birth)) / 31557600000)
+  const bmr = 10*bw.weight_kg + 6.25*me.heightCm - 5*age + 5
   const hrBonus = Math.min(HR_BONUS_CAP, runs.filter(r => r.date === today && r.avg_hr && r.duration_sec)
     .reduce((sum, r) => {
       const byHR = kcalFromHR(r.avg_hr, r.duration_sec/60, bw.weight_kg, age)
@@ -987,7 +1010,7 @@ function heroChartSVG(data, goalKg, opts = {}) {
   const L = opts.label || 1
   const ink = opts.ink || '239,233,218'
   const accent = opts.accent || '244,168,0'
-  const goal = goalKg || 95
+  const goal = goalKg || Math.min(...data.map(d => d.weight_kg))
   const W = opts.W || 620, H = opts.H || 230
   const pl = 6, pr = 76*L, pt = 16, pb = 30*L
   const iw = W - pl - pr, ih = H - pt - pb
@@ -1143,7 +1166,7 @@ function heroHTML(mode) {
     : `${weekly < 0 ? '↓' : weekly > 0 ? '↑' : '='} ${Math.abs(weekly).toFixed(1)} KG/WK`
   const trackTxt = weekly == null ? 'NO TREND YET' : weekly <= -0.8 ? 'ON TRACK' : 'BELOW TARGET'
   const etaMs = proj.etaMs
-  const cutStart = goals.cut_start || CUT_START
+  const cutStart = cutStartDate()
   const day = daysBetween(cutStart, localIso()) + 1
 
   let eta = etaMs ? `${goal} kg around ${fmtDayMonMs(etaMs)} at this pace`
@@ -1159,7 +1182,7 @@ function heroHTML(mode) {
   const wTime = fmtTime(bw.measured_at) || fmtTime(bw.created_at)
   const status = mode.notWeighed ? 'NOT WEIGHED TODAY' : `WEIGHED${wTime ? ' ' + wTime : ''} ✓`
 
-  const marks = MILESTONES.filter(([kg]) => kg < start && kg > goal).map(([kg, note]) =>
+  const marks = milestones(start, goal).map(([kg, note]) =>
     ({ kg, note, left: ((start - kg) / (start - goal) * 100).toFixed(1) + '%' }))
 
   const stats = [
@@ -1340,7 +1363,8 @@ function pillarsHTML(mode) {
   const food = { ...(todayData.todayDiet ? done(GREEN, PAPER) : todo), label:'FOOD',
     val: num(en.eaten), unit:'KCAL', action:'LOG FOOD', act:'open-food',
     bar: en.eatToday ? clampPct(en.eaten / en.eatToday * 100) : 0,
-    sub: !en.ok ? 'Log a weight to size the budget.'
+    sub: en.needsProfile ? 'Add height and birth date in EDIT GOALS to size the budget.'
+      : !en.ok ? 'Log a weight to size the budget.'
       : !en.eaten ? `Nothing logged yet. Today's budget is ${num(en.eatToday)} kcal.`
       : en.over ? `${num(Math.abs(en.left))} over today's ${num(en.eatToday)} budget`
       : `${num(en.left)} left of today's ${num(en.eatToday)} budget` }
@@ -1623,7 +1647,7 @@ function paceChartHTML() {
   const start = goals.bw_start, goal = goals.bw_goal
   const bw = todayData.bodyWeight
   if (!start || !goal || !bw) return { card:'' }
-  const cutStart = goals.cut_start || CUT_START
+  const cutStart = cutStartDate()
   const DAY = 86400000
   const t0 = asDate(cutStart).getTime()
   const planEnd = t0 + ((start - goal) / PLAN_KG_PER_WEEK) * 7 * DAY
@@ -1702,7 +1726,7 @@ function cutCardHTML() {
   const etaMs = proj.etaMs
   const hist = [...(todayData.bwHistory || [])].sort((a,b) => a.date < b.date ? -1 : 1)
   const moved = start - w
-  const since = fmtDayMon(goals.cut_start || CUT_START)
+  const since = fmtDayMon(cutStartDate())
   const summary = (moved >= 0
       ? `${fmtKg(moved)} kg down since ${since}, ${(w-goal).toFixed(1)} to go. `
       : `${fmtKg(-moved)} kg up on the ${since} start, ${(w-goal).toFixed(1)} to go. `)
@@ -2036,34 +2060,63 @@ async function saveWhy() {
 }
 
 // ── goals ──
+// Everything personal about an install lives here: the cut, the body metrics the
+// calorie budget needs, and the daily targets.
+function applyProfile() {
+  STEP_TARGET = +goals.step_target || 10000
+  SLEEP_TARGET = +goals.sleep_target || 7
+  PLAN_KG_PER_WEEK = +goals.plan_kg_per_week || 1.0
+}
 function openGoals() {
   modalRoot().innerHTML = shell({
-    title:'EDIT GOALS', sub:'THE CUT AND THE BENCH TARGET',
+    title:'EDIT GOALS', sub:'THE CUT, YOUR BODY AND THE DAILY TARGETS',
     body:`<div class="two-col">
       <div><div class="field-lbl">START KG</div><input id="g-start" class="mid-in" type="number" step="0.1" value="${goals.bw_start || ''}"></div>
       <div><div class="field-lbl">GOAL KG</div><input id="g-goal" class="mid-in" type="number" step="0.1" value="${goals.bw_goal || ''}"></div>
     </div>
     <div class="two-col">
       <div><div class="field-lbl">BENCH GOAL KG</div><input id="g-bench" class="mid-in" type="number" step="0.5" value="${goals.bench_goal || ''}"></div>
-      <div><div class="field-lbl">CUT START</div><input id="g-cut" class="text-in" placeholder="YYYY-MM-DD" value="${esc(goals.cut_start || CUT_START)}"></div>
-    </div>`,
+      <div><div class="field-lbl">CUT START</div><input id="g-cut" class="text-in" placeholder="YYYY-MM-DD" value="${esc(cutStartDate())}"></div>
+    </div>
+    <div class="two-col">
+      <div><div class="field-lbl">HEIGHT CM</div><input id="g-height" class="mid-in" type="number" step="1" value="${goals.height_cm || ''}"></div>
+      <div><div class="field-lbl">BIRTH DATE</div><input id="g-birth" class="text-in" placeholder="YYYY-MM-DD" value="${esc(goals.birth_date || '')}"></div>
+    </div>
+    <div class="two-col">
+      <div><div class="field-lbl">STEP TARGET</div><input id="g-steps" class="mid-in" type="number" step="500" value="${goals.step_target || STEP_TARGET}"></div>
+      <div><div class="field-lbl">SLEEP TARGET H</div><input id="g-sleep" class="mid-in" type="number" step="0.5" value="${goals.sleep_target || SLEEP_TARGET}"></div>
+    </div>
+    <div class="two-col">
+      <div><div class="field-lbl">PLAN KG/WEEK</div><input id="g-plan" class="mid-in" type="number" step="0.1" value="${goals.plan_kg_per_week || PLAN_KG_PER_WEEK}"></div>
+      <div></div>
+    </div>
+    <div class="modal-hint">Height and birth date are only used to size the daily calorie budget. Nothing leaves this server.</div>`,
     ghost:'CANCEL', primary:'SAVE GOALS', primaryAct:'save-goals',
   })
   focusFirst('#g-goal')
 }
 async function saveGoals() {
   const payload = {}
-  const start = parseFloat(document.getElementById('g-start').value)
-  const goal = parseFloat(document.getElementById('g-goal').value)
-  const bench = parseFloat(document.getElementById('g-bench').value)
-  const cut = String(document.getElementById('g-cut').value || '').trim()
-  if (start) payload.bw_start = start
-  if (goal) payload.bw_goal = goal
-  if (bench) payload.bench_goal = bench
-  if (/^\d{4}-\d{2}-\d{2}$/.test(cut)) payload.cut_start = cut
+  const numField = (id, key) => {
+    const v = parseFloat(document.getElementById(id).value)
+    if (v) payload[key] = v
+  }
+  const dateField = (id, key) => {
+    const v = String(document.getElementById(id).value || '').trim()
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) payload[key] = v
+  }
+  numField('g-start', 'bw_start')
+  numField('g-goal', 'bw_goal')
+  numField('g-bench', 'bench_goal')
+  numField('g-height', 'height_cm')
+  numField('g-steps', 'step_target')
+  numField('g-sleep', 'sleep_target')
+  numField('g-plan', 'plan_kg_per_week')
+  dateField('g-cut', 'cut_start')
+  dateField('g-birth', 'birth_date')
   if (!Object.keys(payload).length) return
   const r = await api('POST', '/api/goals', payload)
-  if (r) goals = r
+  if (r) { goals = r; applyProfile() }
   closeModal()
   await reload(['today'])
 }
@@ -2417,7 +2470,7 @@ const LOADERS = {
   today:   async () => { todayData = await api('GET', '/api/today') || {} },
   sessions:async () => { sessions = await api('GET', '/api/sessions?detail=4') || [] },
   runs:    async () => { runs = await api('GET', '/api/runs') || [] },
-  goals:   async () => { goals = await api('GET', '/api/goals') || {} },
+  goals:   async () => { goals = await api('GET', '/api/goals') || {}; applyProfile() },
   lifts:   async () => { liftHistory = await api('GET', '/api/lift-history') || [] },
   steps:   async () => { stepsData = await api('GET', '/api/steps') || [] },
   diet:    async () => { dietData = await api('GET', '/api/diet') || [] },
