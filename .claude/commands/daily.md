@@ -1,5 +1,7 @@
 # /daily - morning sync + brief for the Post Cairo cut
 
+> Personal to Chris. This command drives the Apple Notes workflow described in CLAUDE.md and is not needed to use FITLOG: the app has an in-app session logger.
+
 Run the daily sync loop. FITLOG (localhost:7779) is the single source of truth; the Apple Note "Post Cairo · Road to 95" is a rendered view; Fitbit feeds steps/weight/sleep. Always use the HTTP API, never sqlite directly.
 
 ## Steps
