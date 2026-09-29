@@ -505,15 +505,23 @@ const { google } = require('googleapis')
 const TOKENS_PATH = process.env.FLY_APP_NAME
   ? '/data/.google-tokens.json'
   : path.join(__dirname, '.google-tokens.json')
-const CREDS = process.env.FLY_APP_NAME
-  ? { client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uris: [`${PUBLIC_URL}/auth/google-health/callback`] }
-  : JSON.parse(fs.readFileSync(path.join(__dirname, '.google-credentials.json'))).web
+// Google Health is optional. A fresh install has no credentials file, and that must
+// not stop the server: the app works fully on manual entry.
+function loadGoogleCreds() {
+  if (process.env.FLY_APP_NAME) {
+    return { client_id: process.env.GOOGLE_CLIENT_ID, client_secret: process.env.GOOGLE_CLIENT_SECRET, redirect_uris: [`${PUBLIC_URL}/auth/google-health/callback`] }
+  }
+  try {
+    return JSON.parse(fs.readFileSync(path.join(__dirname, '.google-credentials.json'))).web
+  } catch {
+    return null
+  }
+}
+const CREDS = loadGoogleCreds()
 
-const oauth2Client = new google.auth.OAuth2(
-  CREDS.client_id,
-  CREDS.client_secret,
-  CREDS.redirect_uris[0]
-)
+const oauth2Client = CREDS
+  ? new google.auth.OAuth2(CREDS.client_id, CREDS.client_secret, CREDS.redirect_uris[0])
+  : null
 
 const SCOPES = [
   'https://www.googleapis.com/auth/googlehealth.activity_and_fitness.readonly',
@@ -529,15 +537,27 @@ function saveTokens(tokens) {
 }
 
 const savedTokens = loadTokens()
-if (savedTokens) oauth2Client.setCredentials(savedTokens)
-oauth2Client.on('tokens', t => { saveTokens({ ...loadTokens(), ...t }) })
+if (oauth2Client && savedTokens) oauth2Client.setCredentials(savedTokens)
+if (oauth2Client) oauth2Client.on('tokens', t => { saveTokens({ ...loadTokens(), ...t }) })
+
+// Every Google Health route is a no-op without credentials, and says so plainly
+// rather than throwing.
+const NO_GOOGLE = 'Google Health is not configured on this install. Add .google-credentials.json (see README) or log steps and sleep by hand.'
+function requireGoogle(res, asHtml) {
+  if (oauth2Client) return false
+  if (asHtml) res.send(`<h2>Not configured</h2><p>${NO_GOOGLE}</p>`)
+  else res.status(503).json({ error: NO_GOOGLE })
+  return true
+}
 
 app.get('/auth/google-health', (req, res) => {
+  if (requireGoogle(res, true)) return
   const url = oauth2Client.generateAuthUrl({ access_type: 'offline', scope: SCOPES, prompt: 'consent' })
   res.redirect(url)
 })
 
 app.get('/auth/google-health/callback', async (req, res) => {
+  if (requireGoogle(res, true)) return
   const { code, error } = req.query
   if (error) return res.send(`<h2>Auth error: ${error}</h2><p><a href="/auth/google-health">Try again</a></p>`)
   try {
@@ -602,6 +622,7 @@ async function healthGetAll(pathPart, params, maxPages = 40) {
 }
 
 app.post('/api/fitbit/sync', async (req, res) => {
+  if (requireGoogle(res)) return
   const tokens = loadTokens()
   if (!tokens?.access_token) return res.status(401).json({ error: 'Not connected. Visit /auth/google-health first.' })
   oauth2Client.setCredentials(tokens)
@@ -745,6 +766,7 @@ app.get('/api/recovery', (req, res) => {
 
 // Debug: see the raw Health API response for a data type while we verify shapes
 app.get('/api/health/raw', async (req, res) => {
+  if (requireGoogle(res)) return
   const tokens = loadTokens()
   if (!tokens?.access_token) return res.status(401).json({ error: 'Not connected' })
   oauth2Client.setCredentials(tokens)
