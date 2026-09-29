@@ -4,6 +4,10 @@ Single-user fitness tracker for a cut. Single Express server (`server.js`, port 
 
 Nothing personal lives in the source: the profile (start and goal weight, cut start, height, birth date, step/sleep targets, plan kg per week) is in the `goals` key/value table and edited in the app. The training split is `PROGRAMS` and `ROUTINE` in `index.html`, meant to be edited per person.
 
+If `GET /api/goals` comes back empty or without `bw_start`, this is a fresh install:
+offer to run `/setup` (`.claude/commands/setup.md`), which walks the user through the
+profile conversationally, rather than asking them to edit anything by hand.
+
 Sections marked **[personal]** describe Chris's own setup and are not part of the shared project. Anyone else forking this can ignore them; the UI rules and code conventions below apply to everyone.
 
 ## Rules

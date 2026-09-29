@@ -629,7 +629,7 @@ a{ color:inherit; text-decoration:none }
   <header class="hdr">
     <div class="hdr-logo">
       <div class="wordmark">FITLOG</div>
-      <div class="wordmark-sub">ATHLETIC LOG</div>
+      <div class="wordmark-sub" id="wordmark-sub">ATHLETIC LOG</div>
     </div>
     <nav class="hdr-nav" id="hdr-nav"></nav>
     <div class="hdr-right">
@@ -946,7 +946,9 @@ function energy() {
       return sum + Math.max(0, byHR - counted)
     }, 0))
   const burn = s => bmr*SEDENTARY + (s/1000)*KCAL_PER_1K_STEPS + hrBonus
-  const deficit = KCAL_PER_KG_FAT / 7
+  // The deficit follows the chosen rate. At the default 1.0 kg/week this is the
+  // same 1100 kcal it always was.
+  const deficit = KCAL_PER_KG_FAT * PLAN_KG_PER_WEEK / 7
   const FLOOR = 1600
   const eatToday = Math.max(FLOOR, Math.round(burn(steps) - deficit))
   const eatAt10k = Math.max(FLOOR, Math.round(burn(STEP_TARGET) - deficit))
@@ -976,6 +978,11 @@ function readiness() {
     else if (sl > 0 && sl < SLEEP_TARGET) { verdict='AMBER'; color=AMBER; short='HOLD'; advice='Train, hold weights. No new PRs.' }
   }
   if (sl > 0) stats.push({ lbl:'SLEEP', val: sl.toFixed(1), delta:'HRS' })
+  // Nothing slept, nothing measured: an honest blank beats a confident GREEN.
+  if (!rec.length && !sl) {
+    return { verdict:'NO DATA', color:INK, short:'SET UP', stats:[], rhrUp:0,
+      advice:'Log a night of sleep, or connect a tracker, to get a readiness call.' }
+  }
   return { verdict, color, short, advice, stats: stats.slice(0, 3), rhrUp }
 }
 
@@ -1128,6 +1135,8 @@ function renderHeader(mode) {
       <span class="ready-dot"></span>${r.verdict} · ${r.short}
     </div>`
   document.getElementById('hdr-date').textContent = fmtDate(today)
+  document.getElementById('wordmark-sub').textContent =
+    goals.name ? `${String(goals.name).toUpperCase()}'S LOG` : 'ATHLETIC LOG'
 
   const showBanner = mode.evening && tab !== 'today'
   const en = energy()
@@ -1352,12 +1361,13 @@ function pillarsHTML(mode) {
 
   // SLEEP
   const sleep = { ...(sl >= SLEEP_TARGET ? done(BLUE, PAPER) : todo), label:'SLEEP',
-    val: sl ? sl.toFixed(1) : '—', unit:'HRS', sub:'Synced from Fitbit. Target 7h.',
+    val: sl ? sl.toFixed(1) : '—', unit:'HRS',
+    sub: sl ? `Target ${SLEEP_TARGET}h.` : `Log last night, or connect a tracker to sync it. Target ${SLEEP_TARGET}h.`,
     action:'EDIT HOURS', act:'open-sleep' }
   if (fbDown) Object.assign(sleep, { cls:'', c:CARD, fg:INK, tag:'TO DO', val:'—',
     sub:"Fitbit disconnected, so last night didn't sync.", action:'RECONNECT FITBIT',
     act:'reconnect', url: syncFitbit.reconnect_url || '/auth/google-health', btn:'warn' })
-  else if (sl > 0 && sl < SLEEP_TARGET) sleep.sub = `Synced from Fitbit. ${(SLEEP_TARGET-sl).toFixed(1)}h short of 7h.`
+  else if (sl > 0 && sl < SLEEP_TARGET) sleep.sub = `${(SLEEP_TARGET-sl).toFixed(1)}h short of ${SLEEP_TARGET}h.`
 
   // FOOD
   const food = { ...(todayData.todayDiet ? done(GREEN, PAPER) : todo), label:'FOOD',
@@ -1372,7 +1382,7 @@ function pillarsHTML(mode) {
   // STEPS
   const stepsDone = en.steps >= STEP_TARGET
   const steps = { ...(stepsDone ? done(GOLD, INK) : todo), label:'STEPS',
-    val: en.steps ? num(en.steps) : '—', unit:'/ 10K', action:'+ ADD STEPS', act:'open-steps',
+    val: en.steps ? num(en.steps) : '—', unit: stepUnit(), action:'+ ADD STEPS', act:'open-steps',
     bar: clampPct(en.steps / STEP_TARGET * 100),
     sub: fbDown ? 'Waiting on Fitbit.'
       : stepsDone ? `Target hit. Today's budget is ${num(en.eatToday)} kcal.`
@@ -2062,6 +2072,9 @@ async function saveWhy() {
 // ── goals ──
 // Everything personal about an install lives here: the cut, the body metrics the
 // calorie budget needs, and the daily targets.
+// "/ 10K" when the target is a round thousand, the plain number otherwise.
+const stepUnit = () => STEP_TARGET % 1000 === 0 ? `/ ${STEP_TARGET/1000}K` : `/ ${num(STEP_TARGET)}`
+
 function applyProfile() {
   STEP_TARGET = +goals.step_target || 10000
   SLEEP_TARGET = +goals.sleep_target || 7
