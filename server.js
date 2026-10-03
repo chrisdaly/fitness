@@ -532,13 +532,20 @@ const SCOPES = [
 function loadTokens() {
   try { return JSON.parse(fs.readFileSync(TOKENS_PATH)) } catch { return null }
 }
+// Google only returns a refresh_token on the initial consent. Every later refresh
+// sends back an access_token with refresh_token absent or undefined, so a plain
+// merge drops the key and the next refresh fails with "No refresh token". Guard it:
+// the stored refresh_token survives unless a new one actually arrives.
 function saveTokens(tokens) {
-  fs.writeFileSync(TOKENS_PATH, JSON.stringify(tokens, null, 2))
+  const prev = loadTokens() || {}
+  const merged = { ...prev, ...tokens }
+  if (!merged.refresh_token && prev.refresh_token) merged.refresh_token = prev.refresh_token
+  fs.writeFileSync(TOKENS_PATH, JSON.stringify(merged, null, 2))
 }
 
 const savedTokens = loadTokens()
 if (oauth2Client && savedTokens) oauth2Client.setCredentials(savedTokens)
-if (oauth2Client) oauth2Client.on('tokens', t => { saveTokens({ ...loadTokens(), ...t }) })
+if (oauth2Client) oauth2Client.on('tokens', t => saveTokens(t))
 
 // Every Google Health route is a no-op without credentials, and says so plainly
 // rather than throwing.
