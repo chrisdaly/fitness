@@ -244,6 +244,21 @@ app.get('/api/sessions/:id', (req, res) => {
   res.json(s)
 })
 
+// Update a session's metadata (name, type, colour, note, date). Used when an era
+// gets renamed and the old label is still sitting on historical sessions.
+app.patch('/api/sessions/:id', (req, res) => {
+  const id = +req.params.id
+  if (!getSession(id)) return res.status(404).json({ error: 'not found' })
+  const fields = ['name', 'type', 'color', 'note', 'date']
+  const sets = [], vals = []
+  for (const f of fields) {
+    if (req.body[f] !== undefined) { sets.push(`${f} = ?`); vals.push(req.body[f]) }
+  }
+  if (!sets.length) return res.status(400).json({ error: 'nothing to update' })
+  q(`UPDATE sessions SET ${sets.join(', ')} WHERE id = ?`).run([...vals, id])
+  res.json(getSession(id))
+})
+
 // Delete session
 app.delete('/api/sessions/:id', (req, res) => {
   q('DELETE FROM sessions WHERE id = ?').run([+req.params.id])
@@ -926,7 +941,7 @@ if (!process.env.FLY_APP_NAME) {
 app.listen(PORT, '0.0.0.0', () => console.log(`fitness on http://0.0.0.0:${PORT}`))
 
 // Google delivers Fitbit data late and revises it after the fact; re-syncing
-// every 4h lets the upserts self-heal without a manual /daily run.
+// every 4h lets the upserts self-heal without a manual /cut run.
 setInterval(() => {
   fetch(`http://localhost:${PORT}/api/fitbit/sync?days=3`, { method: 'POST' })
     .then(r => r.json())
