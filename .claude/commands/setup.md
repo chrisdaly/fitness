@@ -117,7 +117,7 @@ a name stable once they have logged it.
    - **There is no login.** On localhost that is fine. On a public URL it is not.
    - **Their data is one SQLite file** at `DB_PATH` (`fitness.db` by default), not in
      git. Back it up.
-   - **`/daily`** is the original author's Apple Notes workflow and is not needed.
+   - **`/cut`** is the original author's Apple Notes workflow and is not needed.
      The app logs sessions itself.
 4. Offer to log their first session with them, or leave them to it.
 

@@ -198,7 +198,7 @@ personal needs to live in the source.
 
 ## A note on the author's workflow
 
-`CLAUDE.md` and `.claude/commands/daily.md` describe one specific way of using this app:
+`CLAUDE.md` and `.claude/commands/cut.md` describe one specific way of using this app:
 recording lifts in an Apple Note and having Claude Code sync them into FITLOG each
 morning. That is personal to the original author and entirely optional. The app has a
 full in-app session logger and does not need it.

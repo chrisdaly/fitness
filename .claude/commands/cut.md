@@ -1,15 +1,17 @@
-# /daily - morning sync + brief for the Post Cairo cut
+# /cut - morning sync + brief for The Last Cut
 
 > Personal to Chris. This command drives the Apple Notes workflow described in CLAUDE.md and is not needed to use FITLOG: the app has an in-app session logger.
+>
+> Named `/cut` rather than `/daily` because a user-level `/daily` in dotfiles takes precedence over a project one and would shadow it.
 
-Run the daily sync loop. FITLOG (localhost:7779) is the single source of truth; the Apple Note "Post Cairo · Road to 95" is a rendered view; Fitbit feeds steps/weight/sleep. Always use the HTTP API, never sqlite directly.
+Run the daily sync loop. FITLOG (localhost:7779) is the single source of truth; the Apple Note "The Last Cut" is a rendered view; Fitbit feeds steps/weight/sleep. Always use the HTTP API, never sqlite directly.
 
 ## Steps
 
 1. **Withings sync** (weight): `POST /api/withings/sync?days=3`. If 401, tell Chris to visit localhost:7779/auth/withings.
    **Fitbit sync** (steps/sleep via Google Health API): `POST /api/fitbit/sync?days=3`. On auth error: the Testing-mode refresh token has expired (weekly), tell Chris to re-consent at localhost:7779/auth/google-health (Advanced → continue past the unverified warning).
 
-2. **Harvest the note**: read the Apple Note "Post Cairo · Road to 95" via AppleScript.
+2. **Harvest the note**: read the Apple Note "The Last Cut" via AppleScript.
    - CRITICAL: `note "name"` can resolve to copies in Recently Deleted. Always resolve via `notes of folder "Notes" whose name is ...` or by known id, and verify the container is not Recently Deleted before reading or writing.
    - If any session table has filled REPS cells that aren't yet in FITLOG: log the session via `POST /api/log` (working sets only, exact exercise names from the note), then:
      - add a one-line Georgia-italic verdict under that session's table (what moved up, what repeats)
